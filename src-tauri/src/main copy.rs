@@ -16,121 +16,13 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use regex::Regex;
 use regex::Captures;
-use tokio::main;
-
-#[tauri::command(async)]
-async fn get_NodeSessionData() -> Option<String> {
-    // Get the home directory
-    let home_dir = dirs::home_dir().unwrap_or_default();
-    
-    // Build the path to the log file
-    let mut log_file_path = PathBuf::from(home_dir);
-    log_file_path.push("AppData");
-    log_file_path.push("Roaming");
-    log_file_path.push("Pi Network");
-    log_file_path.push("Local Storage");
-    log_file_path.push("leveldb");
-    log_file_path.push("000003.log");
-
-    if let Ok(file_content) = fs::read(&log_file_path) {
-        // 파일 내용을 UTF-8로 디코딩
-        let decoded_content = decode_windows_1252(&file_content);
-        println!("{}", decoded_content);
-
-        let sessionKey = extract_last_auth_token(&decoded_content);
-
-        let result: &str = sessionKey.as_deref().unwrap_or("Default Value");
-
-        return getNodeSession(result).await.ok();
-
-        // println!("{}", result)
-
-    }
-
-    None
-
-}
-
-       
-    //    return Some(result.to_string());
-    //    
-
-
-async fn getNodeSession(token: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let client = reqwest::Client::builder().build()?;
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        "Authorization",
-        format!("Bearer {}", token).parse()?,
-    );
-
-    let request = client
-        .request(reqwest::Method::GET, "https://socialchain.app/api/mining_sessions/status")
-        .headers(headers);
-
-    let response = request.send().await?; // 비동기 호출
-
-    // 패턴 매칭을 통한 결과 처리
-    match response.text().await {
-        Ok(body) => Ok(body),
-        Err(e) => Err(Box::new(e)),
-    }
-}
+use reqwest::blocking::Client;
 
 
 #[tauri::command(async)]
-async fn get_piData() -> Option<String> {
-    // Get the home directory
-    let home_dir = dirs::home_dir().unwrap_or_default();
-    
-    // Build the path to the log file
-    let mut log_file_path = PathBuf::from(home_dir);
-    log_file_path.push("AppData");
-    log_file_path.push("Roaming");
-    log_file_path.push("Pi Network");
-    log_file_path.push("Local Storage");
-    log_file_path.push("leveldb");
-    log_file_path.push("000003.log");
-
-        // Read the contents of the log file
-    if let Ok(file_content) = fs::read(&log_file_path) {
-        // 파일 내용을 UTF-8로 디코딩
-        let decoded_content = decode_windows_1252(&file_content);
-        let sessionKey = extract_last_auth_token(&decoded_content);
-
-        let result: &str = sessionKey.as_deref().unwrap_or("Default Value");
-       
-       return getPiBalance(result).await.ok();
-    }
-    // Return an empty vector if reading or decoding fails
-    None
-}
-
-async fn getPiBalance(token: &str) -> Result<String, Box<dyn std::error::Error>> {
-    let client = reqwest::Client::builder().build()?;
-    let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        "Authorization",
-        format!("Bearer {}", token).parse()?,
-    );
-
-    let request = client
-        .request(reqwest::Method::GET, "https://socialchain.app/api/pi")
-        .headers(headers);
-
-    let response = request.send().await?; // 비동기 호출
-
-    // 패턴 매칭을 통한 결과 처리
-    match response.text().await {
-        Ok(body) => Ok(body),
-        Err(e) => Err(Box::new(e)),
-    }
-}
-
-
-#[tauri::command(async)]
+// async fn get_session() -> Result<String, Box<dyn std::error::Error>> {
 async fn get_session() -> Option<String> {
-    // Get the home directory
+        // Get the home directory
     let home_dir = dirs::home_dir().unwrap_or_default();
     
     // Build the path to the log file
@@ -142,26 +34,24 @@ async fn get_session() -> Option<String> {
     log_file_path.push("leveldb");
     log_file_path.push("000003.log");
 
-        // Read the contents of the log file
+    // Read the contents of the log file
     if let Ok(file_content) = fs::read(&log_file_path) {
         // 파일 내용을 UTF-8로 디코딩
         let decoded_content = decode_windows_1252(&file_content);
-        let sessionKey = extract_last_auth_token(&decoded_content);
+        // let res = getNodeInfo().await;
 
-        let result: &str = sessionKey.as_deref().unwrap_or("Default Value");
-       
-       return getUserInfo(result).await.ok();
+       return getNodeInfo().await.ok();
     }
     // Return an empty vector if reading or decoding fails
     None
 }
 
-async fn getUserInfo(token: &str) -> Result<String, Box<dyn std::error::Error>> {
+async fn getNodeInfo() -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().build()?;
     let mut headers = reqwest::header::HeaderMap::new();
     headers.insert(
         "Authorization",
-        format!("Bearer {}", token).parse()?,
+        "Bearer MNr3bzUd1BN8tBY8vlc0Dck8qKUQFQBabsQceovlZeM".parse()?,
     );
 
     let request = client
@@ -178,23 +68,18 @@ async fn getUserInfo(token: &str) -> Result<String, Box<dyn std::error::Error>> 
 }
 
 
-fn extract_last_auth_token(input_string: &str) -> Option<String> {
+fn extract_last_auth_token(input_string: String) -> Option<String> {
+    let re = Regex::new(r"mobile-app-webview-ui_access-token,([^_]+)").unwrap();
+    
+    // Find all matches and collect them into a vector
+    let matches: Vec<String> = re
+        .captures_iter(&input_string)
+        .map(|captures| captures[1].trim().to_string())
+        .collect();
 
-    let re = Regex::new(r"auth_token_storage_key,([^_]+)").unwrap();
-
-    if let Some(mut last_index) = input_string.rfind("auth_token_storage_key,") {
-        last_index += "auth_token_storage_key,".len();
-        let result = &input_string[last_index..];
-        let truncated_result = result.chars().take(43).collect::<String>();
-
-        // println!("{}",truncated_result);
-        return Some(truncated_result);
-    }
-
-    None
+    // Return the last match, if any
+    matches.last().cloned()
 }
-
-
 
 // Windows-1252 decoding function with removing specified characters
 fn decode_windows_1252(data: &[u8]) -> String {
@@ -215,6 +100,11 @@ fn decode_windows_1252(data: &[u8]) -> String {
 
 #[tauri::command]
 fn get_log_file_content() -> Vec<String> {
+    // // Get the home directory
+    // let home_dir = dirs::home_dir().unwrap_or_default();
+
+    // // Construct the path to the log file
+    // let log_file_path = home_dir.join("Desktop").join("renderer.log");
 
     let home_dir = dirs::home_dir().unwrap_or_default();
 
@@ -314,13 +204,6 @@ struct Payload {
   cwd: String,
 }
 
-// for test
-// #[tokio::main]
-// async fn main() {
-//     // get_NodeSessionData().await;
-//     get_session().await;
-// }
-
 
 fn main() {
 
@@ -414,7 +297,7 @@ fn main() {
         });
         Ok(())
     })
-        .invoke_handler(tauri::generate_handler![get_log_file_content, get_session, get_piData, get_NodeSessionData])
+        .invoke_handler(tauri::generate_handler![get_log_file_content, get_session])
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
 }

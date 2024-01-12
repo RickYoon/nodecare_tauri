@@ -7,14 +7,20 @@ import "./App.css";
 function App() {
 
   const counterRef = useRef(0)
+  const maximumRef = useRef(0)
+  const piDataRef = useRef(0)
+
   const [name, setName] = useState("");
-  const [confirmed, setConfirmed] = useState(false)
+  const [confirmed, setConfirmed] = useState(false);
+  const [noNode, setNoNode] = useState(false);
   const [lastServerUpdatetime, setLastServerUpdatetime] = useState("")
   const [synctime, setSynctime] = useState("");
+  const [syncdiff, setSyncdiff] = useState("");
   const [screen, setScreen] = useState({
     incomingNodes: 0,
     latestBlockTime: 0,
     latestProtocolVersion:0,
+    latestTimeDiff:0,
     ledgerNumber:0,
     outgoingNodes:0,
     protocolVersion:0,
@@ -32,20 +38,169 @@ function App() {
     
     const syncTime = res[0].split("]")[0]
     setSynctime(convertToFormattedDateTime(syncTime))
+    setSyncdiff(calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime))
+    if(maximumRef.current < calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)){
+      maximumRef.current = calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)
+    }
+    
+  }
+
+  async function getSession() {
+    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
+    const res = await invoke("get_session");
+    try {
+      setName(JSON.parse(res).profile.username)
+      setNoNode(false)
+      setConfirmed(true)
+      await greet();
+      await initialSending(JSON.parse(res).profile.username);
+      await onboardingUser(JSON.parse(res).profile.username)
+    } catch{
+      setNoNode(true)
+    }
+    
+  }
+
+  async function onboardingUser (un) {
+    
+
+    const dataPi = {
+      username : un
+    }
+
+    let configPi = {
+      method: 'post',
+      maxBodyLength: Infinity,
+      url: 'https://a32l6tm894.execute-api.ap-northeast-2.amazonaws.com/production/userOnboarding',
+      headers: { 
+        'Content-Type': 'application/json'
+      },
+      data : dataPi
+    };
+    
+    await axios.request(configPi)
+    .then((response) => {
+      console.log(JSON.stringify(response.data));
+    })
+    .catch((error) => {
+      console.log(error);
+    });
 
   }
 
+  async function getPiData() {
+
+    const res = await invoke("get_piData");
+    return res
+
+  }
+
+  
+  async function getNodeSessionData() {
+
+    const res = await invoke("get_NodeSessionData");    
+    return res
+
+  }
+
+  async function initialSending (username) {
+    
+    const res = await invoke("get_log_file_content");
+
+    console.log("res",res)
+
+    const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
+    const quote = addQuotesToKeys(correctedJsonStringa)
+    const jsonTrans = (JSON.parse(quote))
+
+
+
+    const currentDateTime = getCurrentDateTime();
+    setLastServerUpdatetime(currentDateTime)
+
+      let data = JSON.stringify({
+          "username": username,
+          "datetime": currentDateTime,
+          "data": {
+            "nodeWorks" : {
+              "state": jsonTrans.state,
+              "protocolVersion": jsonTrans.protocolVersion,
+              "latestBlockTime": convertTimestampToDateTime(jsonTrans.latestBlockTime),
+              "latestTimeDiff" : calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime),
+              "maxDelay" : maximumRef.current,
+              "ledgerNumber": jsonTrans.ledgerNumber,
+              "incomingNodes": jsonTrans.incomingNodes,
+              "outgoingNodes": jsonTrans.outgoingNodes,
+              "latestProtocolVersion": jsonTrans.latestProtocolVersion
+            }, 
+            "hardware" : {
+              "state": jsonTrans.state,
+            }
+        }
+        });
+   
+         
+          let config = {
+            method: 'post',
+            maxBodyLength: Infinity,
+            url: 'https://ub9iyz7kk7.execute-api.ap-northeast-2.amazonaws.com/abc/insertmm',
+            headers: { 
+              'Content-Type': 'application/json'
+            },
+            data : data
+          };
+          
+          await axios.request(config)
+          .then((response) => {
+            console.log(JSON.stringify(response.data));
+          })
+          .catch((error) => {
+            console.log(error);
+          });
+
+
+          const piData = await getPiData()
+          const nodeSession = await getNodeSessionData()
+          const dataPi = {
+            username : username,
+            piData : JSON.parse(piData),
+            nodeSession : JSON.parse(nodeSession)
+          }
+
+          let configPi = {
+            method: 'post',
+            maxBodyLength: Infinity,
+            url: 'https://ub9iyz7kk7.execute-api.ap-northeast-2.amazonaws.com/abc/insertpiuser',
+            headers: { 
+              'Content-Type': 'application/json'
+            },
+            data : dataPi
+          };
+          
+          await axios.request(configPi)
+          .then((response) => {
+            console.log(JSON.stringify(response.data));
+          })
+          .catch((error) => {
+            console.log(error);
+          });
+
+
+    
+  }
 
   async function sendToServer (){
 
     counterRef.current += 1;
 
-    // console.log("counter out", counterRef)
+    // console.log("counter out", counterRef.current)
 
     if(name !== "" && counterRef.current === 60){
 
       const currentDateTime = getCurrentDateTime();
       setLastServerUpdatetime(currentDateTime)
+
+      // console.log("screen",screen)
 
       let data = JSON.stringify({
           "username": name,
@@ -55,6 +210,8 @@ function App() {
               "state": screen.state,
               "protocolVersion": screen.protocolVersion,
               "latestBlockTime": convertTimestampToDateTime(screen.latestBlockTime),
+              "latestTimeDiff" : calculateTimeDifferenceInSeconds(screen.latestBlockTime),
+              "maxDelay" : maximumRef.current,
               "ledgerNumber": screen.ledgerNumber,
               "incomingNodes": screen.incomingNodes,
               "outgoingNodes": screen.outgoingNodes,
@@ -85,9 +242,44 @@ function App() {
             console.log(error);
           });
     
-      //   console.log('running a task every minute');
+        // console.log('running a task every minute');
         // console.log("counter in", counterRef)
         counterRef.current=0
+        maximumRef.current=0
+        piDataRef.current+=1
+
+        if(piDataRef.current === 72){
+
+          const piData = await getPiData()
+          const nodeSession = await getNodeSessionData()
+          const data = {
+            username : name,
+            piData : JSON.parse(piData),
+            nodeSession : JSON.parse(nodeSession)
+          }
+
+          let config = {
+            method: 'post',
+            maxBodyLength: Infinity,
+            url: 'https://ub9iyz7kk7.execute-api.ap-northeast-2.amazonaws.com/abc/insertpiuser',
+            headers: { 
+              'Content-Type': 'application/json'
+            },
+            data : data
+          };
+          
+          axios.request(config)
+          .then((response) => {
+            console.log(JSON.stringify(response.data));
+          })
+          .catch((error) => {
+            console.log(error);
+          });
+
+          
+          piDataRef.current = 0
+
+        }
 
       }
 
@@ -115,34 +307,44 @@ function App() {
     <div className="container">
       <h1>Welcome to NodeCare!</h1>
 
-      <p>pi username 입력 후 확인을 눌러주세요!</p>
+      {name==="" ?     
+      <>
+        <p>아래 버튼을 누르고 연동을 시작하세요.</p>
+        <button style={{width:"200px", margin:"0px auto"}} onClick={getSession}>
+          연동시작하기
+        </button>
+      </>
+      :
+      <>
+        <div></div>
+        <p>UserName : {name}</p>
+        <div style={{color:"blue"}}>연동이 시작되었습니다! </div>
+        <br />
+        <br />
+        <div style={{color:"green"}}>노드상태</div>
+        <div style={{fontSize:"12px"}}>마지막 싱크 이후 : {syncdiff} 초</div>
+        <br />
+        싱크상태 : {screen.state === "Synced!" ? <>정상싱크</>:<>싱크 맞추는 중</>} <br/>
+        outgoing nodes : {screen.outgoingNodes}<br/>
+        incomming nodes : {screen.incomingNodes}<br/>
+        <div style={{fontSize:"12px"}}>마지막 싱크 이후 : {synctime} 초</div>
+        
+        <br />
+        <br />
 
-      <form
-        className="row"
-        onSubmit={submitHandler}
-      >
-        <input
-          id="greet-input"
-          onChange={(e) => setName(e.currentTarget.value)}
-          placeholder="Enter a name..."
-          disabled={confirmed}
-        />
-        {confirmed ? 
-          <button disabled>연동중...</button>
+        <p style={{color:"green"}}> 파이킹 서버 연동 상태 </p>
+          파이킹 - 노드캐어 상태전송주기 (5분) <br/>
+        ( {5*counterRef.current} /300 초)<br/>
+        {lastServerUpdatetime}
+      </>
+      }
+
+      {noNode ?
+        <>노드설치확인이 되지 않습니다.</>
         :
-          <button type="submit">확인</button>
-        }                
-      </form>
-
-      <p></p>
-      <p>노드로그</p>
-      <p>마지막 싱크를 맞춘 시간 : {synctime}</p>
-      <p>싱크상태 : {screen.state}</p>
-      <p>outgoing nodes : {screen.outgoingNodes}</p>
-      <p>incomming nodes : {screen.incomingNodes}</p>
-
-      <p>마지막 서버 전송 시간 : ({counterRef.current}/60)<br/>
-      {lastServerUpdatetime}</p>
+        <></>
+      }      
+      
     </div>
   );
 }
@@ -188,6 +390,18 @@ function convertTimestampToDateTime(timestamp) {
 
   const formattedDateTime = `${year}-${month}-${day}T${hours}:${minutes}:${seconds}`;
   return formattedDateTime;
+}
+
+function calculateTimeDifferenceInSeconds(timestamp) {
+   
+  const date = new Date(timestamp * 1000); // timestamp는 초 단위이므로 1000을 곱해 밀리초로 변환
+  let now = new Date(); // 현재시간
+
+  const difference = now - date
+  const seconds = Math.floor(difference / 1000);
+
+  return seconds
+
 }
 
 function getCurrentDateTime() {
