@@ -25,6 +25,9 @@ encoding = "0.2.33"
 encoding_rs = "0.8.26"
 reqwest = { version = "0.11", features = ["blocking", "json"] }
 tokio = { version = "1", features = ["full"] }
+sysinfo = "0.30.5"
+raw-cpuid = "11.0.1"
+num_cpus = "1.0"
 
 [features]
 # this feature is used for production builds or when `devPath` points to the filesystem

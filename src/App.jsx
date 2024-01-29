@@ -45,6 +45,33 @@ function App() {
     
   }
 
+  async function getSystemInfo() {
+    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
+    // console.log("res 123res")
+    const res = await invoke("get_system_info");
+
+    // console.log("aqwera", res)
+
+    const systemInfo = res.split("SystemInfo")[1]
+    let fixedJsonString = systemInfo.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":');
+    console.log("res 123res", JSON.parse(fixedJsonString))
+
+    // const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
+    // const quote = addQuotesToKeys(correctedJsonStringa)
+    // const jsonTrans = (JSON.parse(quote))
+    // setScreen(jsonTrans)
+    
+    // const syncTime = res[0].split("]")[0]
+    // setSynctime(convertToFormattedDateTime(syncTime))
+    // setSyncdiff(calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime))
+    // if(maximumRef.current < calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)){
+    //   maximumRef.current = calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)
+    // }
+    
+  
+  }
+
+
   async function getSession() {
     // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
     const res = await invoke("get_session");
@@ -107,7 +134,7 @@ function App() {
     
     const res = await invoke("get_log_file_content");
 
-    console.log("res",res)
+    // console.log("res",res)
 
     const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
     const quote = addQuotesToKeys(correctedJsonStringa)
@@ -200,7 +227,6 @@ function App() {
       const currentDateTime = getCurrentDateTime();
       setLastServerUpdatetime(currentDateTime)
 
-      // console.log("screen",screen)
 
       let data = JSON.stringify({
           "username": name,
@@ -290,6 +316,8 @@ function App() {
       greet()
       if(confirmed){
         sendToServer()
+        getSystemInfo()
+  
       }
     }, 5000);
     return () => clearInterval(id);

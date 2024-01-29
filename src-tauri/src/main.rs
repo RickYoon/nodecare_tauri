@@ -17,44 +17,56 @@ use std::sync::Mutex;
 use regex::Regex;
 use regex::Captures;
 use tokio::main;
+use sysinfo::{Components, CpuRefreshKind, Disks, Networks, RefreshKind, System};
+use raw_cpuid::{CpuId, FeatureInfo};
 
 #[tauri::command(async)]
 async fn get_NodeSessionData() -> Option<String> {
     // Get the home directory
     let home_dir = dirs::home_dir().unwrap_or_default();
-    
-    // Build the path to the log file
+
+    // Build the path to the log file (first try "000003.log", then "000004.log")
+    let log_filenames = ["000003.log", "000004.log"];
     let mut log_file_path = PathBuf::from(home_dir);
     log_file_path.push("AppData");
     log_file_path.push("Roaming");
     log_file_path.push("Pi Network");
     log_file_path.push("Local Storage");
     log_file_path.push("leveldb");
-    log_file_path.push("000003.log");
 
-    if let Ok(file_content) = fs::read(&log_file_path) {
-        // 파일 내용을 UTF-8로 디코딩
-        let decoded_content = decode_windows_1252(&file_content);
-        println!("{}", decoded_content);
+    // Find the first existing log file
+    let log_file_path = log_filenames
+        .iter()
+        .filter_map(|filename| {
+            let mut path = log_file_path.clone();
+            path.push(filename);
+            if path.exists() {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .next();
 
-        let sessionKey = extract_last_auth_token(&decoded_content);
+    if let Some(log_file_path) = log_file_path {
+        if let Ok(file_content) = fs::read(&log_file_path) {
+            // 파일 내용을 UTF-8로 디코딩
+            let decoded_content = decode_windows_1252(&file_content);
+            println!("{}", decoded_content);
 
-        let result: &str = sessionKey.as_deref().unwrap_or("Default Value");
+            let session_key = extract_last_auth_token(&decoded_content);
 
-        return getNodeSession(result).await.ok();
+            let result: &str = session_key.as_deref().unwrap_or("Default Value");
 
-        // println!("{}", result)
+            // Define getNodeSession function or replace it with your actual implementation
+            let node_session_result = getNodeSession(result).await;
 
+            return node_session_result.ok();
+        }
     }
 
     None
-
 }
-
-       
-    //    return Some(result.to_string());
-    //    
-
 
 async fn getNodeSession(token: &str) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().build()?;
@@ -77,32 +89,239 @@ async fn getNodeSession(token: &str) -> Result<String, Box<dyn std::error::Error
     }
 }
 
+#[derive(Debug)]
+struct SystemInfo {
+    total_memory: u64,
+    used_memory: u64,
+    total_swap: u64,
+    used_swap: u64,
+    num_cpus: usize,
+    cpus: Vec<f32>
+}
+
+// #[derive(Debug)]
+// struct CpuInfo {
+//     // 여기에 CPU 정보에 대한 필드들을 추가
+//     usage_percent: f32,  // 예시로 사용률을 저장하는 필드를 추가
+// }
+
+#[derive(Debug)]
+struct LoadAverage {
+    one_minute: f64,
+    five_minutes: f64,
+    fifteen_minutes: f64,
+}
+
+// Convert u64 to String for total_memory field
+fn convert_to_string(value: u64) -> String {
+    value.to_string()
+}
+
+use std::time;
+
+const MHZ_TO_HZ: u64 = 1000000;
+const KHZ_TO_HZ: u64 = 1000;
+
+#[tauri::command(async)]
+async fn get_system_info() -> Option<String> {
+
+    let mut sys = System::new_all();
+    sys.refresh_all();
+
+    let load_avg = System::load_average();
+    let system_info = SystemInfo {
+        total_memory: sys.total_memory(),
+        used_memory: sys.used_memory(),
+        total_swap: sys.total_swap(),
+        used_swap: sys.used_swap(),
+        num_cpus: sys.cpus().len(),
+        cpus: sys.cpus().iter().map(|cpu| cpu.cpu_usage()).collect(),
+    };
+
+    println!("haha[{:?}]", sys.cpus());
+
+    let disks = Disks::new_with_refreshed_list();
+    for disk in disks.list() {
+        println!("[{:?}] {}B", disk.name(), disk.available_space());
+    }
+    
+    let cpuid = CpuId::new();
+
+    if let Some(vf) = cpuid.get_vendor_info() {
+        assert!(vf.as_str() == "GenuineIntel" || vf.as_str() == "AuthenticAMD");
+    }
+
+    let has_sse = cpuid.get_feature_info().map_or(false, |finfo| finfo.has_sse());
+    if has_sse {
+        println!("CPU supports SSE!");
+    }
+
+    if let Some(cparams) = cpuid.get_cache_parameters() {
+        for cache in cparams {
+            let size = cache.associativity() * cache.physical_line_partitions() * cache.coherency_line_size() * cache.sets();
+            println!("L{}-Cache size is {}", cache.level(), size);
+        }
+    } else {
+        println!("No cache parameter information available")
+    }
+
+    // Print vendor information
+    if let Some(vendor_info) = cpuid.get_vendor_info() {
+        println!("Vendor: {:?}", vendor_info);
+    } else {
+        println!("Failed to retrieve vendor information");
+    }
+
+    // Print processor brand string
+    if let Some(brand_string) = cpuid.get_processor_brand_string() {
+        println!("Processor Brand String: {:?}", brand_string.as_str());
+    } else {
+        println!("Failed to retrieve processor brand string");
+    }
+
+    let cpuid = raw_cpuid::CpuId::new();
+    let has_tsc = cpuid
+        .get_feature_info()
+        .map_or(false, |finfo| finfo.has_tsc());
+
+    let has_invariant_tsc = cpuid
+        .get_advanced_power_mgmt_info()
+        .map_or(false, |efinfo| efinfo.has_invariant_tsc());
+
+    let tsc_frequency_hz = cpuid.get_tsc_info().map(|tinfo| {
+        if tinfo.nominal_frequency() != 0 {
+            tinfo.tsc_frequency()
+        } else if tinfo.numerator() != 0 && tinfo.denominator() != 0 {
+            // Skylake and Kabylake don't report the crystal clock, approximate with base frequency:
+            cpuid
+                .get_processor_frequency_info()
+                .map(|pinfo| pinfo.processor_base_frequency() as u64 * MHZ_TO_HZ)
+                .map(|cpu_base_freq_hz| {
+                    let crystal_hz =
+                        cpu_base_freq_hz * tinfo.denominator() as u64 / tinfo.numerator() as u64;
+                    crystal_hz * tinfo.numerator() as u64 / tinfo.denominator() as u64
+                })
+        } else {
+            None
+        }
+    });
+
+    println!("Processor Brand String: {:?}", has_tsc);
+    println!("Processor Brand String: {:?}", has_invariant_tsc);
+    println!("Processor Brand String: {:?}", tsc_frequency_hz);
+
+    // Get the maximum number of logical processor IDs
+    if let Some(info) = cpuid.get_feature_info() {
+        // let max_logical_processor_ids = 1 << info.max_logical_processor_ids();
+        println!("Max Logical Processor IDs: {}", info.max_logical_processor_ids());
+    } else {
+        println!("Failed to retrieve feature information");
+    }
+    
+
+
+    // // Print other CPU information
+    // println!("Feature Info: {:?}", cpuid.get_feature_info());
+    // println!("Cache Info: {:?}", cpuid.get_cache_info());
+    // println!("Processor Serial: {:?}", cpuid.get_processor_serial());
+    // println!("Cache Parameters: {:?}", cpuid.get_cache_parameters());
+    // println!("Monitor/Mwait Info: {:?}", cpuid.get_monitor_mwait_info());
+    // println!("Thermal/Power Info: {:?}", cpuid.get_thermal_power_info());
+    // println!("Extended Features: {:?}", cpuid.get_extended_feature_info());
+    // println!("Direct Cache Access Info: {:?}", cpuid.get_direct_cache_access_info());
+    // println!("Performance Monitoring Info: {:?}", cpuid.get_performance_monitoring_info());
+    // println!("Extended Topology Info: {:?}", cpuid.get_extended_topology_info());
+    // println!("Extended Topology Info V2: {:?}", cpuid.get_extended_topology_info_v2());
+    // println!("Extended State Info: {:?}", cpuid.get_extended_state_info());
+    // println!("RDT Monitoring Info: {:?}", cpuid.get_rdt_monitoring_info());
+    // println!("RDT Allocation Info: {:?}", cpuid.get_rdt_allocation_info());
+    // println!("SGX Info: {:?}", cpuid.get_sgx_info());
+    // println!("Processor Trace Info: {:?}", cpuid.get_processor_trace_info());
+    // println!("TSC Info: {:?}", cpuid.get_tsc_info());
+    // println!("Processor Frequency Info: {:?}", cpuid.get_processor_frequency_info());
+    // println!("SoC Vendor Info: {:?}", cpuid.get_soc_vendor_info());
+    // println!("DAT Info: {:?}", cpuid.get_deterministic_address_translation_info());
+    // println!("Hypervisor Info: {:?}", cpuid.get_hypervisor_info());
+    // println!("Extended Processor and Feature Identifiers: {:?}", cpuid.get_extended_processor_and_feature_identifiers());
+    // println!("L1 Cache and TLB Info: {:?}", cpuid.get_l1_cache_and_tlb_info());
+    // println!("L2/L3 Cache and TLB Info: {:?}", cpuid.get_l2_l3_cache_and_tlb_info());
+    // println!("APM Info: {:?}", cpuid.get_advanced_power_mgmt_info());
+    // println!("Processor Capacity and Feature Info: {:?}", cpuid.get_processor_capacity_feature_info());
+    // println!("SVM Info: {:?}", cpuid.get_svm_info());
+    // println!("TLB 1GB Page Info: {:?}", cpuid.get_tlb_1gb_page_info());
+    // println!("Performance Optimization Info: {:?}", cpuid.get_performance_optimization_info());
+    // println!("Processor Topology Info: {:?}", cpuid.get_processor_topology_info());
+    // println!("Memory Encryption Info: {:?}", cpuid.get_memory_encryption_info());
+    
+
+    // println!("Physical core {:?}",cpuid.get_vendor_info());
+    // println!("global cpu info {:?}",cpuid.get_processor_brand_string());
+
+    let result = Some(format!("{:?}", system_info));
+    if result.is_none() {
+        eprintln!("Error: Result is None");
+    }
+    result
+    // Some(format!("{:?}", system_info))
+ 
+}
+    // println!("total memory: {:?} bytes", system_info);
+
+// fn convert_to_string(value: u64) -> Option<String> {
+//     // Convert u64 to String
+//     let string_value = value.to_string();
+
+//     // Wrap the string in Some to create an Option<String>
+//     Some(string_value)
+// }
+
+
 
 #[tauri::command(async)]
 async fn get_piData() -> Option<String> {
     // Get the home directory
     let home_dir = dirs::home_dir().unwrap_or_default();
-    
-    // Build the path to the log file
+
+    // Build the path to the log file (first try "000003.log", then "000004.log")
+    let log_filenames = ["000003.log", "000004.log"];
     let mut log_file_path = PathBuf::from(home_dir);
     log_file_path.push("AppData");
     log_file_path.push("Roaming");
     log_file_path.push("Pi Network");
     log_file_path.push("Local Storage");
     log_file_path.push("leveldb");
-    log_file_path.push("000003.log");
 
-        // Read the contents of the log file
-    if let Ok(file_content) = fs::read(&log_file_path) {
-        // 파일 내용을 UTF-8로 디코딩
-        let decoded_content = decode_windows_1252(&file_content);
-        let sessionKey = extract_last_auth_token(&decoded_content);
+    // Find the first existing log file
+    let log_file_path = log_filenames
+        .iter()
+        .filter_map(|filename| {
+            let mut path = log_file_path.clone();
+            path.push(filename);
+            if path.exists() {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .next();
 
-        let result: &str = sessionKey.as_deref().unwrap_or("Default Value");
-       
-       return getPiBalance(result).await.ok();
+    // Read the contents of the log file
+    if let Some(log_file_path) = log_file_path {
+        if let Ok(file_content) = fs::read(&log_file_path) {
+            // 파일 내용을 UTF-8로 디코딩
+            let decoded_content = decode_windows_1252(&file_content);
+            let session_key = extract_last_auth_token(&decoded_content);
+
+            let result: &str = session_key.as_deref().unwrap_or("Default Value");
+
+            // Define getPiBalance function or replace it with your actual implementation
+            let balance = getPiBalance(result).await;
+
+            return balance.ok();
+        }
     }
-    // Return an empty vector if reading or decoding fails
+
+    // Return an empty option if reading or decoding fails
     None
 }
 
@@ -132,27 +351,44 @@ async fn getPiBalance(token: &str) -> Result<String, Box<dyn std::error::Error>>
 async fn get_session() -> Option<String> {
     // Get the home directory
     let home_dir = dirs::home_dir().unwrap_or_default();
-    
-    // Build the path to the log file
+
+    // Build the path to the log file (first try "000003.log", then "000004.log")
+    let log_filenames = ["000003.log", "000004.log"];
     let mut log_file_path = PathBuf::from(home_dir);
     log_file_path.push("AppData");
     log_file_path.push("Roaming");
     log_file_path.push("Pi Network");
     log_file_path.push("Local Storage");
     log_file_path.push("leveldb");
-    log_file_path.push("000003.log");
 
+    // Find the first existing log file
+    let log_file_path = log_filenames
+        .iter()
+        .filter_map(|filename| {
+            let mut path = log_file_path.clone();
+            path.push(filename);
+            if path.exists() {
+                Some(path)
+            } else {
+                None
+            }
+        })
+        .next();
+
+    if let Some(log_file_path) = log_file_path {
         // Read the contents of the log file
-    if let Ok(file_content) = fs::read(&log_file_path) {
-        // 파일 내용을 UTF-8로 디코딩
-        let decoded_content = decode_windows_1252(&file_content);
-        let sessionKey = extract_last_auth_token(&decoded_content);
+        if let Ok(file_content) = fs::read(&log_file_path) {
+            // Decode the file content using windows-1252
+            let decoded_content = decode_windows_1252(&file_content);
+            let session_key = extract_last_auth_token(&decoded_content);
 
-        let result: &str = sessionKey.as_deref().unwrap_or("Default Value");
-       
-       return getUserInfo(result).await.ok();
+            let result: &str = session_key.as_deref().unwrap_or("Default Value");
+
+            return getUserInfo(result).await.ok();
+        }
     }
-    // Return an empty vector if reading or decoding fails
+
+    // Return None if no suitable log file is found or if reading or decoding fails
     None
 }
 
@@ -414,7 +650,7 @@ fn main() {
         });
         Ok(())
     })
-        .invoke_handler(tauri::generate_handler![get_log_file_content, get_session, get_piData, get_NodeSessionData])
+        .invoke_handler(tauri::generate_handler![get_log_file_content, get_session, get_piData, get_NodeSessionData, get_system_info])
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
 }
