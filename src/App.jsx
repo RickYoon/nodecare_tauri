@@ -26,7 +26,10 @@ function App() {
   })
 
   const [cpuUsage, setCpuUsage] = useState(0)
-
+  const [winVersion, setWinVersion] = useState("")
+  const [cpuModel, setCpuModel] = useState("")
+  const [cpuFreq, setCpuFreq] = useState(0)
+  const [coreNumber, setCoreNumber] = useState(0)
 
 
   const [noNode, setNoNode] = useState(false);
@@ -68,6 +71,7 @@ function App() {
     const systemInfo = res.split("SystemInfo")[1]
     let fixedJsonString = systemInfo.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":');
 
+    // console.log("original", res)
     console.log("res 123res", JSON.parse(fixedJsonString))
     let systemStatus = JSON.parse(fixedJsonString)
 
@@ -84,6 +88,11 @@ function App() {
     })
 
     setCpuUsage(systemStatus.cpu_percent)
+    setWinVersion(systemStatus.os_version)
+    setCpuFreq(systemStatus.cpu_freq)
+    setCpuModel(systemStatus.cpu_brd)
+    setCoreNumber(systemStatus.core_number)
+
 
     // const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
     // const quote = addQuotesToKeys(correctedJsonStringa)
@@ -357,18 +366,18 @@ function App() {
 
         <WelcomeBanner />
 
-        <div className="bt-5">
-          <div className="text-center pt-3 pb-3 btn w-full bg-red-500 text-white">모니터링 서버연동 상태 : 미 연동</div>
-        </div>
+        {/* <div className="bt-5">
+           <div className="text-center pt-3 pb-3 btn w-full bg-red-500 text-white">모니터링 서버연동 상태 : 미 연동</div>
+        </div> */}
 
-        <ServerStatus memstat={memoryUsage} storagestat={storageUsage} cpustat={cpuUsage}/>
+        <ServerStatus coreNumber={coreNumber} cpuModel={cpuModel} cpuFreq={cpuFreq} memstat={memoryUsage} storagestat={storageUsage} cpustat={cpuUsage} winVersion={winVersion}/>
 
         <NodeStatus />
 
-        <div className="bt-5">
-            <button className="pt-3 pb-3 btn w-full bg-blue-500 hover:bg-blue-600 text-white">모니터링 시작하기</button>
-          </div>
-
+        <header className="px-5 py-4 border-b border-slate-600 dark:border-slate-700 flex items-center">
+          <button className="pt-3 pb-3 btn w-full bg-blue-800 hover:bg-blue-600 text-white">모니터링 시작하기</button>
+        </header>
+        
       {/* {name==="" ?     
       <>
         <p>아래 버튼을 누르고 연동을 시작하세요.</p>
@@ -416,7 +425,7 @@ function App() {
 function WelcomeBanner() {
 
   return (
-    <div className="relative bg-indigo-200 dark:bg-indigo-500 p-4 sm:p-6 rounded-sm overflow-hidden mb-0">
+    <div className="relative bg-slate-700 border-b border-slate-600 p-6 rounded-sm overflow-hidden mb-0">
       <div className="absolute right-0 top-0 -mt-4 mr-16 pointer-events-none hidden xl:block" aria-hidden="true">
         <svg width="319" height="198" xmlnsXlink="http://www.w3.org/1999/xlink">
           <defs>
@@ -459,15 +468,15 @@ function WelcomeBanner() {
       </div>
 
       <div className="relative">
-        <h1 className="text-2xl md:text-3xl text-slate-800 dark:text-slate-100 font-bold mb-1">Welcome to NodeCare ! 👋</h1>
-        <p className="dark:text-indigo-200">연동하기를 누르고, 손쉬운 노드관리를 시작하세요!</p>
-        <p className="dark:text-indigo-200">Version : 0.9</p>
+        <h1 className="text-2xl md:text-3xl text-white dark:text-slate-100 font-bold mb-1">Welcome to NodeCare ! 👋</h1>
+        {/* <p className="dark:text-indigo-200">연동하기를 누르고, 손쉬운 노드관리를 시작하세요!</p> */}
+        <p className="text-white">Version : 0.9</p>
       </div>
     </div>
   );
 }
 
-function ServerStatus({memstat, storagestat,cpustat}) {
+function ServerStatus({coreNumber, cpuModel, cpuFreq, memstat, storagestat,cpustat, winVersion}) {
 
   // console.log("memory Usage Inner",memstat)
   // console.log("storagestat",storagestat)
@@ -487,33 +496,39 @@ function ServerStatus({memstat, storagestat,cpustat}) {
           <div className="space-y-2">
             <div>
               <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">CPU 회사 및 모델명</div>
+                <div className="text-slate-300">CPU 회사/모델명</div>
                 <div className="text-slate-400 italic">
-                  {cpustat.toFixed(2)} %
+                  {cpuModel}
                 </div>
               </div>
               <div className="flex justify-between text-sm mb-2">
                 <div className="text-slate-300">CPU 속도</div>
                 <div className="text-slate-400 italic">
-                  {cpustat.toFixed(2)} %
+                  {cpuFreq/1000} Ghz
                 </div>
               </div>
               <div className="flex justify-between text-sm mb-2">
                 <div className="text-slate-300">CPU 코어수</div>
                 <div className="text-slate-400 italic">
-                  {cpustat.toFixed(2)} %
+                  {coreNumber}
                 </div>
               </div>
               <div className="flex justify-between text-sm mb-2">
                 <div className="text-slate-300">메모리용량</div>
                 <div className="text-slate-400 italic">
-                  {cpustat.toFixed(2)} %
+                  {bytesToGigabytes(memstat.total).toFixed(2)} GB
                 </div>
               </div>
               <div className="flex justify-between text-sm mb-2">
                 <div className="text-slate-300">저장장치 타입 및 용량</div>
                 <div className="text-slate-400 italic">
-                  {cpustat.toFixed(2)} %
+                {bytesToGigabytes(storagestat.total).toFixed(2)} GB
+                </div>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">Windows version</div>
+                <div className="text-slate-400 italic">                
+                  {winVersion}
                 </div>
               </div>
             </div>
@@ -579,48 +594,106 @@ function ServerStatus({memstat, storagestat,cpustat}) {
 
 function NodeStatus() {
   return (
-    <div className="flex flex-col col-span-full xl:col-span-4 bg-gradient-to-b from-slate-700  to-slate-800 dark:bg-none dark:bg-slate-800 shadow-lg rounded-sm border border-slate-700">
+    <div className="flex flex-col col-span-full xl:col-span-4 bg-gradient-to-b from-slate-800  to-slate-900 dark:bg-none dark:bg-slate-800 shadow-lg rounded-sm border border-slate-700">
       <header className="px-5 py-4 border-b border-slate-600 dark:border-slate-700 flex items-center">
-        <h2 className="font-semibold text-slate-200">노드상태</h2>
+        <h2 className="font-semibold text-slate-200">소프트웨어 및 노드정보</h2>
       </header>
-      <div className="h-full flex flex-col px-5 py-6">
+      <div className="flex flex-col col-span-full xl:col-span-4 bg-gradient-to-b from-slate-800  to-slate-900 dark:bg-none dark:bg-slate-800 shadow-lg rounded-sm border border-slate-700">
+
+      <div className="flex flex-row">
+      <div className="flex-1 h-full flex flex-col px-5 py-6">
         <div className="grow flex flex-col justify-center mt-0">
-          {/* <div className="text-xs text-slate-500 font-semibold uppercase mb-3">Details</div> */}
+
+          <div className="text-xs text-slate-500 font-semibold uppercase mb-3">소프트웨어</div>
           <div className="space-y-2">
             <div>
               <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">노드상태</div>
+                <div className="text-slate-300">도커 버전</div>
                 <div className="text-slate-400 italic">
-                  Synced!
+                  {/* {cpuModel} */}
+                  4.2.3
                 </div>
               </div>
-            </div>
-            <div>
               <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">싱크딜레이</div>
+                <div className="text-slate-300">도커 CPUS</div>
                 <div className="text-slate-400 italic">
-                  60 Seconds
-                </div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">Outgoing Nodes</div>
-                <div className="text-slate-400 italic">
-                  8
-                </div>
-              </div>
-            </div>
-            <div>
-              <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">Incoming Nodes</div>
-                <div className="text-slate-400 italic">
-                  0
+                  32
+                  {/* {cpuFreq/1000} Ghz */}
                 </div>
               </div>
             </div>
           </div>
+
+          <div className="text-xs text-slate-500 font-semibold uppercase mt-3 mb-3">모니터링</div>
+          <div className="space-y-2">
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">연동상태</div>
+                <div className="text-slate-400 italic">
+                  연결됨
+                  {/* {cpuModel} */}
+                </div>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">유저네임</div>
+                <div className="text-slate-400 italic">
+                  pirick2053
+                  {/* {cpuFreq/1000} Ghz */}
+                </div>
+              </div>
+            </div>
+          </div>
+
         </div>
+      </div>
+
+      <div className="flex-1 h-full flex flex-col px-5 py-6">
+      <div className="text-xs text-slate-500 font-semibold uppercase mb-3">노드현황</div>
+          <div className="space-y-2">
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">Sync State</div>
+                <div className="text-slate-400 italic">
+                    Synced!
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-4">
+                <div className="text-slate-300">Latest Block 싱크 이후 시간</div>
+                <div className="text-slate-400 italic">
+                    Synced!
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">Outgoing Connections</div>
+                <div className="text-slate-400 italic">
+                  1 <span className="text-slate-500 dark:text-slate-400">/</span> 8
+                </div>
+              </div>
+              <div className="relative w-full h-2 bg-slate-600">
+                <div className="absolute inset-0 bg-emerald-500" aria-hidden="true" style={{ width: `${20}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">Incoming Connections</div>
+                <div className="text-slate-400 italic">
+                  1 <span className="text-slate-500 dark:text-slate-400">/</span> 64
+                </div>
+              </div>
+              <div className="relative w-full h-2 bg-slate-600">
+                <div className="absolute inset-0 bg-emerald-500" aria-hidden="true" style={{ width: `${20}%` }} />
+              </div>
+            </div>
+          </div>
+      </div>
+
+      </div>
+
+
       </div>
     </div>
   );

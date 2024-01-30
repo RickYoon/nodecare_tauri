@@ -17,7 +17,7 @@ use regex::Captures;
 use regex::Regex;
 use std::sync::Arc;
 use std::sync::Mutex;
-use sysinfo::{Components, CpuRefreshKind, Disks, Networks, RefreshKind, System};
+use sysinfo::{Pid, CpuRefreshKind, Disks, Networks, RefreshKind, System};
 use tokio::main;
 
 #[tauri::command(async)]
@@ -96,6 +96,10 @@ struct SystemInfo {
     total_storage: u64,
     used_storage: u64,
     cpu_percent: f64,
+    os_version: String,
+    core_number: usize,
+    cpu_freq: u64,
+    cpu_brd: String
 }
 
 // num_cpus: usize,
@@ -121,13 +125,40 @@ fn convert_to_string(value: u64) -> String {
 const MHZ_TO_HZ: u64 = 1000000;
 const KHZ_TO_HZ: u64 = 1000;
 
+
 #[tauri::command(async)]
 async fn get_system_info() -> Option<String> {
+
+    // system module (universal)
     let mut sys = System::new_all();
     sys.refresh_all();
 
+    // disk, cpu, ram
     let disks = Disks::new_with_refreshed_list();
     let load_avg = System::load_average();
+
+    let mut cpu_frequency = 0;
+    let mut cpu_brand: String = String::new();
+
+    if let Some(cpu) = sys.cpus().get(1) {
+        cpu_frequency = cpu.frequency();
+        cpu_brand = cpu.brand().to_string();;
+        // println!("Frequency: {}", cpu.frequency());
+        println!("Brand: {:?}", cpu.brand());
+    } else {
+        println!("CPU not found.");
+    }
+
+    // os
+    let os_version_option = System::long_os_version();
+
+    let os_version = match os_version_option {
+        Some(value) => value,
+        None => String::new(), // 또는 기본값을 사용하거나 에러 처리 로직을 추가할 수 있습니다.
+    };
+    
+    // x86 cpu module
+    let cpuid = CpuId::new();
 
     let system_info = SystemInfo {
         total_memory: sys.total_memory(),
@@ -135,15 +166,15 @@ async fn get_system_info() -> Option<String> {
         total_storage: disks.list().first()?.total_space(),
         used_storage: disks.list().first()?.total_space() - disks.list().first()?.available_space(),
         cpu_percent: load_avg.one,
+        os_version: os_version,
+        core_number: sys.cpus().len(),
+        cpu_freq : cpu_frequency,
+        cpu_brd: cpu_brand
     };
 
     // Display system information:
-    println!("System name:             {:?}", System::name());
-    println!("System kernel version:   {:?}", System::kernel_version());
-    println!("System OS version:       {:?}", System::os_version());
-    println!("System host name:        {:?}", System::host_name());
 
-    // println!("{:?}", load_avg.one);
+    println!("{:?}", load_avg);
     // println!("[{:?}]", disks.list().first()?.available_space());
     // println!("[{:?}]", disks.list().first()?.total_space());
 
@@ -152,123 +183,22 @@ async fn get_system_info() -> Option<String> {
 
     // println!("haha[{:?}]", sys.cpus());
 
-    // let cpuid = CpuId::new();
-
-    // if let Some(vf) = cpuid.get_vendor_info() {
-    //     assert!(vf.as_str() == "GenuineIntel" || vf.as_str() == "AuthenticAMD");
-    // }
-
-    // let has_sse = cpuid
-    //     .get_feature_info()
-    //     .map_or(false, |finfo| finfo.has_sse());
-    // if has_sse {
-    //     println!("CPU supports SSE!");
-    // }
-
-    // if let Some(cparams) = cpuid.get_cache_parameters() {
-    //     for cache in cparams {
-    //         let size = cache.associativity()
-    //             * cache.physical_line_partitions()
-    //             * cache.coherency_line_size()
-    //             * cache.sets();
-    //         println!("L{}-Cache size is {}", cache.level(), size);
-    //     }
-    // } else {
-    //     println!("No cache parameter information available")
-    // }
-
-    // // Print vendor information
-    // if let Some(vendor_info) = cpuid.get_vendor_info() {
-    //     println!("Vendor: {:?}", vendor_info);
-    // } else {
-    //     println!("Failed to retrieve vendor information");
-    // }
-
-    // // Print processor brand string
-    // if let Some(brand_string) = cpuid.get_processor_brand_string() {
-    //     println!("Processor Brand String: {:?}", brand_string.as_str());
-    // } else {
-    //     println!("Failed to retrieve processor brand string");
-    // }
-
-    // let cpuid = raw_cpuid::CpuId::new();
-
-    // let has_tsc = cpuid
-    //     .get_feature_info()
-    //     .map_or(false, |finfo| finfo.has_tsc());
-
-    // let has_invariant_tsc = cpuid
-    //     .get_advanced_power_mgmt_info()
-    //     .map_or(false, |efinfo| efinfo.has_invariant_tsc());
-
-    // let tsc_frequency_hz = cpuid.get_tsc_info().map(|tinfo| {
-    //     if tinfo.nominal_frequency() != 0 {
-    //         tinfo.tsc_frequency()
-    //     } else if tinfo.numerator() != 0 && tinfo.denominator() != 0 {
-    //         // Skylake and Kabylake don't report the crystal clock, approximate with base frequency:
-    //         cpuid
-    //             .get_processor_frequency_info()
-    //             .map(|pinfo| pinfo.processor_base_frequency() as u64 * MHZ_TO_HZ)
-    //             .map(|cpu_base_freq_hz| {
-    //                 let crystal_hz =
-    //                     cpu_base_freq_hz * tinfo.denominator() as u64 / tinfo.numerator() as u64;
-    //                 crystal_hz * tinfo.numerator() as u64 / tinfo.denominator() as u64
-    //             })
-    //     } else {
-    //         None
-    //     }
-    // });
-
-    // println!("Processor Brand String: {:?}", has_tsc);
+    // println!("Processor Brand String: has_tsc ß{:?}", has_tsc);
     // println!("Processor Brand String: {:?}", has_invariant_tsc);
-    // println!("Processor Brand String: {:?}", tsc_frequency_hz);
+    // println!("Processor Brand String: {:?}", tsc_frequency_hz);    
 
-    // // Get the maximum number of logical processor IDs
-    // if let Some(info) = cpuid.get_feature_info() {
-    //     // let max_logical_processor_ids = 1 << info.max_logical_processor_ids();
-    //     println!(
-    //         "Max Logical Processor IDs: {}",
-    //         info.max_logical_processor_ids()
-    //     );
-    // } else {
-    //     println!("Failed to retrieve feature information");
-    // }
+    // Get the maximum number of logical processor IDs
+    if let Some(info) = cpuid.get_feature_info() {
+        // let max_logical_processor_ids = 1 << info.max_logical_processor_ids();
+        println!(
+            "Max Logical Processor IDs: {}",
+            info.max_logical_processor_ids()
+        );
+    } else {
+        println!("Failed to retrieve feature information");
+    }
 
-    // // Print other CPU information
-    // println!("Feature Info: {:?}", cpuid.get_feature_info());
-    // println!("Cache Info: {:?}", cpuid.get_cache_info());
-    // println!("Processor Serial: {:?}", cpuid.get_processor_serial());
-    // println!("Cache Parameters: {:?}", cpuid.get_cache_parameters());
-    // println!("Monitor/Mwait Info: {:?}", cpuid.get_monitor_mwait_info());
-    // println!("Thermal/Power Info: {:?}", cpuid.get_thermal_power_info());
-    // println!("Extended Features: {:?}", cpuid.get_extended_feature_info());
-    // println!("Direct Cache Access Info: {:?}", cpuid.get_direct_cache_access_info());
-    // println!("Performance Monitoring Info: {:?}", cpuid.get_performance_monitoring_info());
-    // println!("Extended Topology Info: {:?}", cpuid.get_extended_topology_info());
-    // println!("Extended Topology Info V2: {:?}", cpuid.get_extended_topology_info_v2());
-    // println!("Extended State Info: {:?}", cpuid.get_extended_state_info());
-    // println!("RDT Monitoring Info: {:?}", cpuid.get_rdt_monitoring_info());
-    // println!("RDT Allocation Info: {:?}", cpuid.get_rdt_allocation_info());
-    // println!("SGX Info: {:?}", cpuid.get_sgx_info());
-    // println!("Processor Trace Info: {:?}", cpuid.get_processor_trace_info());
-    // println!("TSC Info: {:?}", cpuid.get_tsc_info());
-    // println!("Processor Frequency Info: {:?}", cpuid.get_processor_frequency_info());
-    // println!("SoC Vendor Info: {:?}", cpuid.get_soc_vendor_info());
-    // println!("DAT Info: {:?}", cpuid.get_deterministic_address_translation_info());
-    // println!("Hypervisor Info: {:?}", cpuid.get_hypervisor_info());
-    // println!("Extended Processor and Feature Identifiers: {:?}", cpuid.get_extended_processor_and_feature_identifiers());
-    // println!("L1 Cache and TLB Info: {:?}", cpuid.get_l1_cache_and_tlb_info());
-    // println!("L2/L3 Cache and TLB Info: {:?}", cpuid.get_l2_l3_cache_and_tlb_info());
-    // println!("APM Info: {:?}", cpuid.get_advanced_power_mgmt_info());
-    // println!("Processor Capacity and Feature Info: {:?}", cpuid.get_processor_capacity_feature_info());
-    // println!("SVM Info: {:?}", cpuid.get_svm_info());
-    // println!("TLB 1GB Page Info: {:?}", cpuid.get_tlb_1gb_page_info());
-    // println!("Performance Optimization Info: {:?}", cpuid.get_performance_optimization_info());
-    // println!("Processor Topology Info: {:?}", cpuid.get_processor_topology_info());
-    // println!("Memory Encryption Info: {:?}", cpuid.get_memory_encryption_info());
-
-    // println!("Physical core {:?}", cpuid.get_vendor_info());
-    // println!("global cpu info {:?}",cpuid.get_processor_brand_string());
+    println!("Physical core {:?}", cpuid.get_vendor_info());
 
     let result = Some(format!("{:?}", system_info));
     if result.is_none() {
