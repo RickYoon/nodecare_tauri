@@ -41,7 +41,7 @@
         "fullscreen": false,
         "resizable": true,
         "title": "nodecare-app",
-        "width": 600,
+        "width": 800,
         "height": 700
       }
     ]

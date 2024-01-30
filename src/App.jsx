@@ -10,8 +10,25 @@ function App() {
   const maximumRef = useRef(0)
   const piDataRef = useRef(0)
 
-  const [name, setName] = useState("");
-  const [confirmed, setConfirmed] = useState(false);
+  const [name, setName] = useState("a"); // username
+  const [confirmed, setConfirmed] = useState(true);
+
+  const [memoryUsage, setMemoryUsage] = useState({
+    total : 0,
+    use: 0,
+    percent:0
+  })
+
+  const [storageUsage, setStorageUsage] = useState({
+    total : 0,
+    use: 0,
+    percent : 0
+  })
+
+  const [cpuUsage, setCpuUsage] = useState(0)
+
+
+
   const [noNode, setNoNode] = useState(false);
   const [lastServerUpdatetime, setLastServerUpdatetime] = useState("")
   const [synctime, setSynctime] = useState("");
@@ -46,15 +63,27 @@ function App() {
   }
 
   async function getSystemInfo() {
-    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    // console.log("res 123res")
+
     const res = await invoke("get_system_info");
-
-    // console.log("aqwera", res)
-
     const systemInfo = res.split("SystemInfo")[1]
     let fixedJsonString = systemInfo.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":');
+
     console.log("res 123res", JSON.parse(fixedJsonString))
+    let systemStatus = JSON.parse(fixedJsonString)
+
+    setMemoryUsage({
+      total : systemStatus.total_memory,
+      use : systemStatus.used_memory,
+      percent : systemStatus.used_memory/systemStatus.total_memory*100
+    })
+
+    setStorageUsage({
+      total : systemStatus.total_storage,
+      use : systemStatus.used_storage,
+      percent : systemStatus.used_storage/systemStatus.total_storage*100
+    })
+
+    setCpuUsage(systemStatus.cpu_percent)
 
     // const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
     // const quote = addQuotesToKeys(correctedJsonStringa)
@@ -133,15 +162,9 @@ function App() {
   async function initialSending (username) {
     
     const res = await invoke("get_log_file_content");
-
-    // console.log("res",res)
-
     const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
     const quote = addQuotesToKeys(correctedJsonStringa)
     const jsonTrans = (JSON.parse(quote))
-
-
-
     const currentDateTime = getCurrentDateTime();
     setLastServerUpdatetime(currentDateTime)
 
@@ -329,13 +352,24 @@ function App() {
       greet();
   }
 
-  
-
   return (
-    <div className="container">
-      <h1>Welcome to NodeCare!</h1>
+    <div className="">
 
-      {name==="" ?     
+        <WelcomeBanner />
+
+        <div className="bt-5">
+          <div className="text-center pt-3 pb-3 btn w-full bg-red-500 text-white">모니터링 서버연동 상태 : 미 연동</div>
+        </div>
+
+        <ServerStatus memstat={memoryUsage} storagestat={storageUsage} cpustat={cpuUsage}/>
+
+        <NodeStatus />
+
+        <div className="bt-5">
+            <button className="pt-3 pb-3 btn w-full bg-blue-500 hover:bg-blue-600 text-white">모니터링 시작하기</button>
+          </div>
+
+      {/* {name==="" ?     
       <>
         <p>아래 버튼을 누르고 연동을 시작하세요.</p>
         <button style={{width:"200px", margin:"0px auto"}} onClick={getSession}>
@@ -371,8 +405,223 @@ function App() {
         <>노드설치확인이 되지 않습니다.</>
         :
         <></>
-      }      
+      }       */}
+
       
+    </div>
+  );
+}
+
+
+function WelcomeBanner() {
+
+  return (
+    <div className="relative bg-indigo-200 dark:bg-indigo-500 p-4 sm:p-6 rounded-sm overflow-hidden mb-0">
+      <div className="absolute right-0 top-0 -mt-4 mr-16 pointer-events-none hidden xl:block" aria-hidden="true">
+        <svg width="319" height="198" xmlnsXlink="http://www.w3.org/1999/xlink">
+          <defs>
+            <path id="welcome-a" d="M64 0l64 128-64-20-64 20z" />
+            <path id="welcome-e" d="M40 0l40 80-40-12.5L0 80z" />
+            <path id="welcome-g" d="M40 0l40 80-40-12.5L0 80z" />
+            <linearGradient x1="50%" y1="0%" x2="50%" y2="100%" id="welcome-b">
+              <stop stopColor="#A5B4FC" offset="0%" />
+              <stop stopColor="#818CF8" offset="100%" />
+            </linearGradient>
+            <linearGradient x1="50%" y1="24.537%" x2="50%" y2="100%" id="welcome-c">
+              <stop stopColor="#4338CA" offset="0%" />
+              <stop stopColor="#6366F1" stopOpacity="0" offset="100%" />
+            </linearGradient>
+          </defs>
+          <g fill="none" fillRule="evenodd">
+            <g transform="rotate(64 36.592 105.604)">
+              <mask id="welcome-d" fill="#fff">
+                <use xlinkHref="#welcome-a" />
+              </mask>
+              <use fill="url(#welcome-b)" xlinkHref="#welcome-a" />
+              <path fill="url(#welcome-c)" mask="url(#welcome-d)" d="M64-24h80v152H64z" />
+            </g>
+            <g transform="rotate(-51 91.324 -105.372)">
+              <mask id="welcome-f" fill="#fff">
+                <use xlinkHref="#welcome-e" />
+              </mask>
+              <use fill="url(#welcome-b)" xlinkHref="#welcome-e" />
+              <path fill="url(#welcome-c)" mask="url(#welcome-f)" d="M40.333-15.147h50v95h-50z" />
+            </g>
+            <g transform="rotate(44 61.546 392.623)">
+              <mask id="welcome-h" fill="#fff">
+                <use xlinkHref="#welcome-g" />
+              </mask>
+              <use fill="url(#welcome-b)" xlinkHref="#welcome-g" />
+              <path fill="url(#welcome-c)" mask="url(#welcome-h)" d="M40.333-15.147h50v95h-50z" />
+            </g>
+          </g>
+        </svg>
+      </div>
+
+      <div className="relative">
+        <h1 className="text-2xl md:text-3xl text-slate-800 dark:text-slate-100 font-bold mb-1">Welcome to NodeCare ! 👋</h1>
+        <p className="dark:text-indigo-200">연동하기를 누르고, 손쉬운 노드관리를 시작하세요!</p>
+        <p className="dark:text-indigo-200">Version : 0.9</p>
+      </div>
+    </div>
+  );
+}
+
+function ServerStatus({memstat, storagestat,cpustat}) {
+
+  // console.log("memory Usage Inner",memstat)
+  // console.log("storagestat",storagestat)
+
+  return (
+    <div className="flex flex-col col-span-full xl:col-span-4 bg-gradient-to-b from-slate-700  to-slate-800 dark:bg-none dark:bg-slate-800 shadow-lg rounded-sm border border-slate-700">
+
+      <header className="px-5 py-4 border-b border-slate-600 dark:border-slate-700 flex items-center">
+        <h2 className="font-semibold text-slate-200">서버 컴퓨터 정보</h2>
+      </header>
+
+      <div className="flex flex-row">
+      <div className="flex-1 h-full flex flex-col px-5 py-6">
+        <div className="grow flex flex-col justify-center mt-0">
+
+          <div className="text-xs text-slate-500 font-semibold uppercase mb-3">사양</div>
+          <div className="space-y-2">
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">CPU 회사 및 모델명</div>
+                <div className="text-slate-400 italic">
+                  {cpustat.toFixed(2)} %
+                </div>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">CPU 속도</div>
+                <div className="text-slate-400 italic">
+                  {cpustat.toFixed(2)} %
+                </div>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">CPU 코어수</div>
+                <div className="text-slate-400 italic">
+                  {cpustat.toFixed(2)} %
+                </div>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">메모리용량</div>
+                <div className="text-slate-400 italic">
+                  {cpustat.toFixed(2)} %
+                </div>
+              </div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">저장장치 타입 및 용량</div>
+                <div className="text-slate-400 italic">
+                  {cpustat.toFixed(2)} %
+                </div>
+              </div>
+            </div>
+
+
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 h-full flex flex-col px-5 py-6">
+      <div className="text-xs text-slate-500 font-semibold uppercase mb-3">사용량</div>
+          <div className="space-y-2">
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">CPU</div>
+                <div className="text-slate-400 italic">
+                  {cpustat.toFixed(2)} %
+                </div>
+              </div>
+              <div className="relative w-full h-2 bg-slate-600">
+                <div className="absolute inset-0 bg-emerald-500" aria-hidden="true" style={{ width: `${cpustat}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">RAM</div>
+                <div className="text-slate-400 italic">
+                {/* {(bytesToGigabytes(memstat.total))} */}
+                  {(bytesToGigabytes(memstat.use)).toFixed(2)} <span className="text-slate-500 dark:text-slate-400">/</span> {bytesToGigabytes(memstat.total).toFixed(2)} GB
+                  ({memstat.percent.toFixed(2)} %)
+                </div>
+              </div>
+              <div className="relative w-full h-2 bg-slate-600">
+                <div className="absolute inset-0 bg-emerald-500" aria-hidden="true" style={{ width: `${memstat.percent}%` }} />
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">Storage</div>
+                <div className="text-slate-400 italic">
+                {(bytesToGigabytes(storagestat.use)).toFixed(2)} <span className="text-slate-500 dark:text-slate-400">/</span> {bytesToGigabytes(storagestat.total).toFixed(2)} GB
+                  ({storagestat.percent.toFixed(2)} %)
+                </div>
+              </div>
+              <div className="relative w-full h-2 bg-slate-600">
+                <div className="absolute inset-0 bg-emerald-500" aria-hidden="true" style={{ width: `${storagestat.percent}%` }} />
+              </div>
+            </div>
+          </div>
+      </div>
+
+    </div>
+
+
+    </div>
+  );
+
+  function bytesToGigabytes(bytes) {
+    return bytes / (1024 ** 3); // 1024의 3승으로 나눠서 기가바이트로 변환
+  }
+  
+}
+
+function NodeStatus() {
+  return (
+    <div className="flex flex-col col-span-full xl:col-span-4 bg-gradient-to-b from-slate-700  to-slate-800 dark:bg-none dark:bg-slate-800 shadow-lg rounded-sm border border-slate-700">
+      <header className="px-5 py-4 border-b border-slate-600 dark:border-slate-700 flex items-center">
+        <h2 className="font-semibold text-slate-200">노드상태</h2>
+      </header>
+      <div className="h-full flex flex-col px-5 py-6">
+        <div className="grow flex flex-col justify-center mt-0">
+          {/* <div className="text-xs text-slate-500 font-semibold uppercase mb-3">Details</div> */}
+          <div className="space-y-2">
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">노드상태</div>
+                <div className="text-slate-400 italic">
+                  Synced!
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">싱크딜레이</div>
+                <div className="text-slate-400 italic">
+                  60 Seconds
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">Outgoing Nodes</div>
+                <div className="text-slate-400 italic">
+                  8
+                </div>
+              </div>
+            </div>
+            <div>
+              <div className="flex justify-between text-sm mb-2">
+                <div className="text-slate-300">Incoming Nodes</div>
+                <div className="text-slate-400 italic">
+                  0
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

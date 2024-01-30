@@ -12,13 +12,13 @@ use std::fs;
 use std::path::PathBuf;
 use tauri::{CustomMenuItem, SystemTray, SystemTrayEvent, SystemTrayMenu, SystemTrayMenuItem};
 
+use raw_cpuid::{CpuId, FeatureInfo};
+use regex::Captures;
+use regex::Regex;
 use std::sync::Arc;
 use std::sync::Mutex;
-use regex::Regex;
-use regex::Captures;
-use tokio::main;
 use sysinfo::{Components, CpuRefreshKind, Disks, Networks, RefreshKind, System};
-use raw_cpuid::{CpuId, FeatureInfo};
+use tokio::main;
 
 #[tauri::command(async)]
 async fn get_NodeSessionData() -> Option<String> {
@@ -71,13 +71,13 @@ async fn get_NodeSessionData() -> Option<String> {
 async fn getNodeSession(token: &str) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().build()?;
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        "Authorization",
-        format!("Bearer {}", token).parse()?,
-    );
+    headers.insert("Authorization", format!("Bearer {}", token).parse()?);
 
     let request = client
-        .request(reqwest::Method::GET, "https://socialchain.app/api/mining_sessions/status")
+        .request(
+            reqwest::Method::GET,
+            "https://socialchain.app/api/mining_sessions/status",
+        )
         .headers(headers);
 
     let response = request.send().await?; // 비동기 호출
@@ -93,11 +93,13 @@ async fn getNodeSession(token: &str) -> Result<String, Box<dyn std::error::Error
 struct SystemInfo {
     total_memory: u64,
     used_memory: u64,
-    total_swap: u64,
-    used_swap: u64,
-    num_cpus: usize,
-    cpus: Vec<f32>
+    total_storage: u64,
+    used_storage: u64,
+    cpu_percent: f64,
 }
+
+// num_cpus: usize,
+// cpus: Vec<f32>,
 
 // #[derive(Debug)]
 // struct CpuInfo {
@@ -116,109 +118,121 @@ struct LoadAverage {
 fn convert_to_string(value: u64) -> String {
     value.to_string()
 }
-
-use std::time;
-
 const MHZ_TO_HZ: u64 = 1000000;
 const KHZ_TO_HZ: u64 = 1000;
 
 #[tauri::command(async)]
 async fn get_system_info() -> Option<String> {
-
     let mut sys = System::new_all();
     sys.refresh_all();
 
+    let disks = Disks::new_with_refreshed_list();
     let load_avg = System::load_average();
+
     let system_info = SystemInfo {
         total_memory: sys.total_memory(),
         used_memory: sys.used_memory(),
-        total_swap: sys.total_swap(),
-        used_swap: sys.used_swap(),
-        num_cpus: sys.cpus().len(),
-        cpus: sys.cpus().iter().map(|cpu| cpu.cpu_usage()).collect(),
+        total_storage: disks.list().first()?.total_space(),
+        used_storage: disks.list().first()?.total_space() - disks.list().first()?.available_space(),
+        cpu_percent: load_avg.one,
     };
 
-    println!("haha[{:?}]", sys.cpus());
+    // Display system information:
+    println!("System name:             {:?}", System::name());
+    println!("System kernel version:   {:?}", System::kernel_version());
+    println!("System OS version:       {:?}", System::os_version());
+    println!("System host name:        {:?}", System::host_name());
 
-    let disks = Disks::new_with_refreshed_list();
-    for disk in disks.list() {
-        println!("[{:?}] {}B", disk.name(), disk.available_space());
-    }
-    
-    let cpuid = CpuId::new();
+    // println!("{:?}", load_avg.one);
+    // println!("[{:?}]", disks.list().first()?.available_space());
+    // println!("[{:?}]", disks.list().first()?.total_space());
 
-    if let Some(vf) = cpuid.get_vendor_info() {
-        assert!(vf.as_str() == "GenuineIntel" || vf.as_str() == "AuthenticAMD");
-    }
+    // num_cpus: sys.cpus().len(),
+    // cpus: sys.cpus().iter().map(|cpu| cpu.cpu_usage()).collect(),
 
-    let has_sse = cpuid.get_feature_info().map_or(false, |finfo| finfo.has_sse());
-    if has_sse {
-        println!("CPU supports SSE!");
-    }
+    // println!("haha[{:?}]", sys.cpus());
 
-    if let Some(cparams) = cpuid.get_cache_parameters() {
-        for cache in cparams {
-            let size = cache.associativity() * cache.physical_line_partitions() * cache.coherency_line_size() * cache.sets();
-            println!("L{}-Cache size is {}", cache.level(), size);
-        }
-    } else {
-        println!("No cache parameter information available")
-    }
+    // let cpuid = CpuId::new();
 
-    // Print vendor information
-    if let Some(vendor_info) = cpuid.get_vendor_info() {
-        println!("Vendor: {:?}", vendor_info);
-    } else {
-        println!("Failed to retrieve vendor information");
-    }
+    // if let Some(vf) = cpuid.get_vendor_info() {
+    //     assert!(vf.as_str() == "GenuineIntel" || vf.as_str() == "AuthenticAMD");
+    // }
 
-    // Print processor brand string
-    if let Some(brand_string) = cpuid.get_processor_brand_string() {
-        println!("Processor Brand String: {:?}", brand_string.as_str());
-    } else {
-        println!("Failed to retrieve processor brand string");
-    }
+    // let has_sse = cpuid
+    //     .get_feature_info()
+    //     .map_or(false, |finfo| finfo.has_sse());
+    // if has_sse {
+    //     println!("CPU supports SSE!");
+    // }
 
-    let cpuid = raw_cpuid::CpuId::new();
-    let has_tsc = cpuid
-        .get_feature_info()
-        .map_or(false, |finfo| finfo.has_tsc());
+    // if let Some(cparams) = cpuid.get_cache_parameters() {
+    //     for cache in cparams {
+    //         let size = cache.associativity()
+    //             * cache.physical_line_partitions()
+    //             * cache.coherency_line_size()
+    //             * cache.sets();
+    //         println!("L{}-Cache size is {}", cache.level(), size);
+    //     }
+    // } else {
+    //     println!("No cache parameter information available")
+    // }
 
-    let has_invariant_tsc = cpuid
-        .get_advanced_power_mgmt_info()
-        .map_or(false, |efinfo| efinfo.has_invariant_tsc());
+    // // Print vendor information
+    // if let Some(vendor_info) = cpuid.get_vendor_info() {
+    //     println!("Vendor: {:?}", vendor_info);
+    // } else {
+    //     println!("Failed to retrieve vendor information");
+    // }
 
-    let tsc_frequency_hz = cpuid.get_tsc_info().map(|tinfo| {
-        if tinfo.nominal_frequency() != 0 {
-            tinfo.tsc_frequency()
-        } else if tinfo.numerator() != 0 && tinfo.denominator() != 0 {
-            // Skylake and Kabylake don't report the crystal clock, approximate with base frequency:
-            cpuid
-                .get_processor_frequency_info()
-                .map(|pinfo| pinfo.processor_base_frequency() as u64 * MHZ_TO_HZ)
-                .map(|cpu_base_freq_hz| {
-                    let crystal_hz =
-                        cpu_base_freq_hz * tinfo.denominator() as u64 / tinfo.numerator() as u64;
-                    crystal_hz * tinfo.numerator() as u64 / tinfo.denominator() as u64
-                })
-        } else {
-            None
-        }
-    });
+    // // Print processor brand string
+    // if let Some(brand_string) = cpuid.get_processor_brand_string() {
+    //     println!("Processor Brand String: {:?}", brand_string.as_str());
+    // } else {
+    //     println!("Failed to retrieve processor brand string");
+    // }
 
-    println!("Processor Brand String: {:?}", has_tsc);
-    println!("Processor Brand String: {:?}", has_invariant_tsc);
-    println!("Processor Brand String: {:?}", tsc_frequency_hz);
+    // let cpuid = raw_cpuid::CpuId::new();
 
-    // Get the maximum number of logical processor IDs
-    if let Some(info) = cpuid.get_feature_info() {
-        // let max_logical_processor_ids = 1 << info.max_logical_processor_ids();
-        println!("Max Logical Processor IDs: {}", info.max_logical_processor_ids());
-    } else {
-        println!("Failed to retrieve feature information");
-    }
-    
+    // let has_tsc = cpuid
+    //     .get_feature_info()
+    //     .map_or(false, |finfo| finfo.has_tsc());
 
+    // let has_invariant_tsc = cpuid
+    //     .get_advanced_power_mgmt_info()
+    //     .map_or(false, |efinfo| efinfo.has_invariant_tsc());
+
+    // let tsc_frequency_hz = cpuid.get_tsc_info().map(|tinfo| {
+    //     if tinfo.nominal_frequency() != 0 {
+    //         tinfo.tsc_frequency()
+    //     } else if tinfo.numerator() != 0 && tinfo.denominator() != 0 {
+    //         // Skylake and Kabylake don't report the crystal clock, approximate with base frequency:
+    //         cpuid
+    //             .get_processor_frequency_info()
+    //             .map(|pinfo| pinfo.processor_base_frequency() as u64 * MHZ_TO_HZ)
+    //             .map(|cpu_base_freq_hz| {
+    //                 let crystal_hz =
+    //                     cpu_base_freq_hz * tinfo.denominator() as u64 / tinfo.numerator() as u64;
+    //                 crystal_hz * tinfo.numerator() as u64 / tinfo.denominator() as u64
+    //             })
+    //     } else {
+    //         None
+    //     }
+    // });
+
+    // println!("Processor Brand String: {:?}", has_tsc);
+    // println!("Processor Brand String: {:?}", has_invariant_tsc);
+    // println!("Processor Brand String: {:?}", tsc_frequency_hz);
+
+    // // Get the maximum number of logical processor IDs
+    // if let Some(info) = cpuid.get_feature_info() {
+    //     // let max_logical_processor_ids = 1 << info.max_logical_processor_ids();
+    //     println!(
+    //         "Max Logical Processor IDs: {}",
+    //         info.max_logical_processor_ids()
+    //     );
+    // } else {
+    //     println!("Failed to retrieve feature information");
+    // }
 
     // // Print other CPU information
     // println!("Feature Info: {:?}", cpuid.get_feature_info());
@@ -252,9 +266,8 @@ async fn get_system_info() -> Option<String> {
     // println!("Performance Optimization Info: {:?}", cpuid.get_performance_optimization_info());
     // println!("Processor Topology Info: {:?}", cpuid.get_processor_topology_info());
     // println!("Memory Encryption Info: {:?}", cpuid.get_memory_encryption_info());
-    
 
-    // println!("Physical core {:?}",cpuid.get_vendor_info());
+    // println!("Physical core {:?}", cpuid.get_vendor_info());
     // println!("global cpu info {:?}",cpuid.get_processor_brand_string());
 
     let result = Some(format!("{:?}", system_info));
@@ -263,9 +276,8 @@ async fn get_system_info() -> Option<String> {
     }
     result
     // Some(format!("{:?}", system_info))
- 
 }
-    // println!("total memory: {:?} bytes", system_info);
+// println!("total memory: {:?} bytes", system_info);
 
 // fn convert_to_string(value: u64) -> Option<String> {
 //     // Convert u64 to String
@@ -274,8 +286,6 @@ async fn get_system_info() -> Option<String> {
 //     // Wrap the string in Some to create an Option<String>
 //     Some(string_value)
 // }
-
-
 
 #[tauri::command(async)]
 async fn get_piData() -> Option<String> {
@@ -328,10 +338,7 @@ async fn get_piData() -> Option<String> {
 async fn getPiBalance(token: &str) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().build()?;
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        "Authorization",
-        format!("Bearer {}", token).parse()?,
-    );
+    headers.insert("Authorization", format!("Bearer {}", token).parse()?);
 
     let request = client
         .request(reqwest::Method::GET, "https://socialchain.app/api/pi")
@@ -345,7 +352,6 @@ async fn getPiBalance(token: &str) -> Result<String, Box<dyn std::error::Error>>
         Err(e) => Err(Box::new(e)),
     }
 }
-
 
 #[tauri::command(async)]
 async fn get_session() -> Option<String> {
@@ -395,10 +401,7 @@ async fn get_session() -> Option<String> {
 async fn getUserInfo(token: &str) -> Result<String, Box<dyn std::error::Error>> {
     let client = reqwest::Client::builder().build()?;
     let mut headers = reqwest::header::HeaderMap::new();
-    headers.insert(
-        "Authorization",
-        format!("Bearer {}", token).parse()?,
-    );
+    headers.insert("Authorization", format!("Bearer {}", token).parse()?);
 
     let request = client
         .request(reqwest::Method::GET, "https://socialchain.app/api/me")
@@ -413,9 +416,7 @@ async fn getUserInfo(token: &str) -> Result<String, Box<dyn std::error::Error>> 
     }
 }
 
-
 fn extract_last_auth_token(input_string: &str) -> Option<String> {
-
     let re = Regex::new(r"auth_token_storage_key,([^_]+)").unwrap();
 
     if let Some(mut last_index) = input_string.rfind("auth_token_storage_key,") {
@@ -430,15 +431,16 @@ fn extract_last_auth_token(input_string: &str) -> Option<String> {
     None
 }
 
-
-
 // Windows-1252 decoding function with removing specified characters
 fn decode_windows_1252(data: &[u8]) -> String {
     let result = WINDOWS_1252.decode(data, DecoderTrap::Replace);
     match result {
         Ok(decoded) => {
             // Remove specific characters like \0x01, \0x02, etc.
-            let cleaned_string: String = decoded.chars().filter(|&c| c != '\x01' && c != '\x02').collect();
+            let cleaned_string: String = decoded
+                .chars()
+                .filter(|&c| c != '\x01' && c != '\x02')
+                .collect();
             cleaned_string
         }
         Err(err) => {
@@ -448,10 +450,8 @@ fn decode_windows_1252(data: &[u8]) -> String {
     }
 }
 
-
 #[tauri::command]
 fn get_log_file_content() -> Vec<String> {
-
     let home_dir = dirs::home_dir().unwrap_or_default();
 
     // Construct the path to the log file
@@ -542,12 +542,12 @@ fn build_menu() -> SystemTrayMenu {
         .add_item(menuitem_quit)
 }
 
-use tauri::{Manager};
+use tauri::Manager;
 
 #[derive(Clone, serde::Serialize)]
 struct Payload {
-  args: Vec<String>,
-  cwd: String,
+    args: Vec<String>,
+    cwd: String,
 }
 
 // for test
@@ -557,9 +557,7 @@ struct Payload {
 //     get_session().await;
 // }
 
-
 fn main() {
-
     #[allow(clippy::mutex_integer)]
     let count = Arc::new(Mutex::new(0));
 
@@ -574,83 +572,90 @@ fn main() {
     use tauri::Manager;
 
     tauri::Builder::default()
-    .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
-        println!("{}, {argv:?}, {cwd}", app.package_info().name);
+        .plugin(tauri_plugin_single_instance::init(|app, argv, cwd| {
+            println!("{}, {argv:?}, {cwd}", app.package_info().name);
 
-        app.emit_all("single-instance", Payload { args: argv, cwd }).unwrap();
-    }))
-    .system_tray(SystemTray::new().with_menu(tray_menu))
-    .on_system_tray_event(move |app, event| match event {
-        SystemTrayEvent::RightClick {
-            position: _,
-            size: _,
-            ..
-        } => {
-            println!("system tray received a right click");
-        }
-        SystemTrayEvent::DoubleClick {
-            position: _,
-            size: _,
-            ..
-        } => {
-            println!("system tray received a double click");
-        }
-        SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
-            "quit" => {
-                std::process::exit(0);
-            }
-            "show" => {
-                let w = app.get_window("main").unwrap();
-                w.show().unwrap();
-
-                // because the window shows in a specific workspace and the user
-                // can hide it and move to another, it will next show in the original
-                // workspace it was opened in.
-                // this is important for the window to always show in whatever workspace
-                // the user moved to and is active in.
-                w.set_focus().unwrap();
-            }
-
-            _ => {}
-        },
-        _ => {}
-    })
-    .on_window_event(|event| match event.event() {
-        tauri::WindowEvent::CloseRequested { api, .. } => {
-            // don't kill the app when the user clicks close. this is important
-            event.window().hide().unwrap();
-            api.prevent_close();
-        }
-        _ => {}
-    })
-    .setup(|app| {
-        // don't show on the taskbar/springboard
-        // this is purely a personal taste thing
-        #[cfg(target_os = "macos")]
-        app.set_activation_policy(tauri::ActivationPolicy::Accessory);
-
-        let window = app.get_window("main").unwrap();
-
-        // this is a workaround for the window to always show in current workspace.
-        // see https://github.com/tauri-apps/tauri/issues/2801
-        window.set_always_on_top(true).unwrap();
-
-        // watch out! forever loop, every 5s emit an event
-        // to the JS side, which has to subscribe on the event ID.
-        std::thread::spawn(move || loop {
-            window
-                .emit(
-                    "rs_js_emit",
-                    format!("beep: {}", chrono::Local::now().to_rfc3339()),
-                )
+            app.emit_all("single-instance", Payload { args: argv, cwd })
                 .unwrap();
-            println!("rs -> js emit");
+        }))
+        .system_tray(SystemTray::new().with_menu(tray_menu))
+        .on_system_tray_event(move |app, event| match event {
+            SystemTrayEvent::RightClick {
+                position: _,
+                size: _,
+                ..
+            } => {
+                println!("system tray received a right click");
+            }
+            SystemTrayEvent::DoubleClick {
+                position: _,
+                size: _,
+                ..
+            } => {
+                println!("system tray received a double click");
+            }
+            SystemTrayEvent::MenuItemClick { id, .. } => match id.as_str() {
+                "quit" => {
+                    std::process::exit(0);
+                }
+                "show" => {
+                    let w = app.get_window("main").unwrap();
+                    w.show().unwrap();
 
-            thread::sleep(Duration::seconds(5).to_std().unwrap());
-        });
-        Ok(())
-    })
-        .invoke_handler(tauri::generate_handler![get_log_file_content, get_session, get_piData, get_NodeSessionData, get_system_info])
+                    // because the window shows in a specific workspace and the user
+                    // can hide it and move to another, it will next show in the original
+                    // workspace it was opened in.
+                    // this is important for the window to always show in whatever workspace
+                    // the user moved to and is active in.
+                    w.set_focus().unwrap();
+                }
+
+                _ => {}
+            },
+            _ => {}
+        })
+        .on_window_event(|event| match event.event() {
+            tauri::WindowEvent::CloseRequested { api, .. } => {
+                // don't kill the app when the user clicks close. this is important
+                event.window().hide().unwrap();
+                api.prevent_close();
+            }
+            _ => {}
+        })
+        .setup(|app| {
+            // don't show on the taskbar/springboard
+            // this is purely a personal taste thing
+            #[cfg(target_os = "macos")]
+            app.set_activation_policy(tauri::ActivationPolicy::Accessory);
+
+            let window = app.get_window("main").unwrap();
+
+            // this is a workaround for the window to always show in current workspace.
+            // see https://github.com/tauri-apps/tauri/issues/2801
+            window.set_always_on_top(true).unwrap();
+
+            // watch out! forever loop, every 5s emit an event
+            // to the JS side, which has to subscribe on the event ID.
+            std::thread::spawn(move || loop {
+                window
+                    .emit(
+                        "rs_js_emit",
+                        format!("beep: {}", chrono::Local::now().to_rfc3339()),
+                    )
+                    .unwrap();
+                println!("rs -> js emit");
+
+                thread::sleep(Duration::seconds(5).to_std().unwrap());
+            });
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            get_log_file_content,
+            get_session,
+            get_piData,
+            get_NodeSessionData,
+            get_system_info
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application")
 }
