@@ -1,8 +1,10 @@
 import { useRef, useState,useEffect } from "react";
 import axios from "axios"
-import reactLogo from "./assets/react.svg";
+import reactLogo from "./assets/piLogoPng.png";
 import { invoke } from "@tauri-apps/api/tauri";
 import "./App.css";
+
+
 
 function App() {
 
@@ -10,8 +12,17 @@ function App() {
   const maximumRef = useRef(0)
   const piDataRef = useRef(0)
 
-  const [name, setName] = useState("a"); // username
-  const [confirmed, setConfirmed] = useState(true);
+  // State to hold the email input value
+  const [email, setEmail] = useState('');
+  const [onboardCounter, setOnboardCounter] = useState(0);
+  const [isLoading, setIsLoading] = useState(false); // username
+  const [name, setName] = useState(""); // username
+
+  const [confirmed, setConfirmed] = useState(false);
+  const [dockerInfo, setDockerInfo] = useState({
+    version : "",
+    cpus: ""
+  })
 
   const [memoryUsage, setMemoryUsage] = useState({
     total : 0,
@@ -32,7 +43,9 @@ function App() {
   const [coreNumber, setCoreNumber] = useState(0)
 
 
-  const [noNode, setNoNode] = useState(false);
+  const [noNode, setNoNode] = useState(true);
+  const [noEmail, setNoEmail] = useState(false);
+
   const [lastServerUpdatetime, setLastServerUpdatetime] = useState("")
   const [synctime, setSynctime] = useState("");
   const [syncdiff, setSyncdiff] = useState("");
@@ -47,33 +60,56 @@ function App() {
     state:""
   })
 
-  async function greet() {
-    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    const res = await invoke("get_log_file_content");
+  async function getStaticInfos(){ // monitoring init
 
-    const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
+    setIsLoading(true)
+
+    const res = await invoke("get_static_info");
+    const correctedJsonStringa = ((res.split("StaticInfo ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
     const quote = addQuotesToKeys(correctedJsonStringa)
     const jsonTrans = (JSON.parse(quote))
-    setScreen(jsonTrans)
     
-    const syncTime = res[0].split("]")[0]
-    setSynctime(convertToFormattedDateTime(syncTime))
-    setSyncdiff(calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime))
-    if(maximumRef.current < calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)){
-      maximumRef.current = calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)
-    }
+    setCpuFreq(jsonTrans.cpu_freq)
+    setCpuModel(jsonTrans.cpu_brd)
+    setCoreNumber(jsonTrans.core_number)
+    setWinVersion(jsonTrans.os_version)
+    setDockerInfo({
+      version: jsonTrans.docker_version,
+      cpus: jsonTrans.docker_cpus
+    })
+
+    setMemoryUsage({
+      total : jsonTrans.total_memory,
+      use : 0,
+      percent : 0
+    })
     
+    setStorageUsage({
+      total : jsonTrans.total_storage,
+      use : 0,
+      percent : 0
+    })
+
+    //jsonTrans
+
+    await onboardingUser(name, jsonTrans); // email과 유저네임을 기반으로 nodeUser 업데이트한다. 
+    await getDynamicInfo();
+    await initialSending(name); 
+
+    setIsLoading(false)
+
   }
 
-  async function getSystemInfo() {
+  async function getDynamicInfo() {
 
-    const res = await invoke("get_system_info");
-    const systemInfo = res.split("SystemInfo")[1]
+    // const dockerInfo = await invoke("get_docker_exec");
+    // console.log("dynamicInfo",dockerInfo)
+
+
+    const dynamicInfo = await invoke("get_dynamic_info");
+    const systemInfo = dynamicInfo.split("SystemInfo")[1]
     let fixedJsonString = systemInfo.replace(/(['"])?([a-zA-Z0-9_]+)(['"])?:/g, '"$2":');
-
-    // console.log("original", res)
-    console.log("res 123res", JSON.parse(fixedJsonString))
-    let systemStatus = JSON.parse(fixedJsonString)
+    let systemStatus = JSON.parse(fixedJsonString)    
 
     setMemoryUsage({
       total : systemStatus.total_memory,
@@ -88,50 +124,36 @@ function App() {
     })
 
     setCpuUsage(systemStatus.cpu_percent)
-    setWinVersion(systemStatus.os_version)
-    setCpuFreq(systemStatus.cpu_freq)
-    setCpuModel(systemStatus.cpu_brd)
-    setCoreNumber(systemStatus.core_number)
 
+    const res = await invoke("get_log_file_content");
+    const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
+    const quote = addQuotesToKeys(correctedJsonStringa)
+    const jsonTrans = (JSON.parse(quote))
 
-    // const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
-    // const quote = addQuotesToKeys(correctedJsonStringa)
-    // const jsonTrans = (JSON.parse(quote))
-    // setScreen(jsonTrans)
-    
-    // const syncTime = res[0].split("]")[0]
-    // setSynctime(convertToFormattedDateTime(syncTime))
-    // setSyncdiff(calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime))
-    // if(maximumRef.current < calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)){
-    //   maximumRef.current = calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)
-    // }
+    setScreen(jsonTrans)    
+    const syncTime = res[0].split("]")[0]
+    setSynctime(convertToFormattedDateTime(syncTime))
+    setSyncdiff(calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime))
+    if(maximumRef.current < calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)){
+      maximumRef.current = calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime)
+    }
     
   
   }
 
 
-  async function getSession() {
-    // Learn more about Tauri commands at https://tauri.app/v1/guides/features/command
-    const res = await invoke("get_session");
-    try {
-      setName(JSON.parse(res).profile.username)
-      setNoNode(false)
-      setConfirmed(true)
-      await greet();
-      await initialSending(JSON.parse(res).profile.username);
-      await onboardingUser(JSON.parse(res).profile.username)
-    } catch{
-      setNoNode(true)
-    }
-    
-  }
-
-  async function onboardingUser (un) {
+  async function onboardingUser (un, jsonTrans) {
     
 
     const dataPi = {
       username : un
     }
+
+    const specData = {
+      spec : jsonTrans
+    }    
+
+    let mergedObj = { ...dataPi, ...specData };
 
     let configPi = {
       method: 'post',
@@ -140,7 +162,7 @@ function App() {
       headers: { 
         'Content-Type': 'application/json'
       },
-      data : dataPi
+      data : mergedObj
     };
     
     await axios.request(configPi)
@@ -170,6 +192,7 @@ function App() {
 
   async function initialSending (username) {
     
+    // node 정보 업데이트 
     const res = await invoke("get_log_file_content");
     const correctedJsonStringa = ((res[0].split("info: ")[1])).replace(/(?:\\[rn])+/g, '').replace(/(\s*)/g, '').replace(/'/g, '"').toString()
     const quote = addQuotesToKeys(correctedJsonStringa)
@@ -177,27 +200,30 @@ function App() {
     const currentDateTime = getCurrentDateTime();
     setLastServerUpdatetime(currentDateTime)
 
-      let data = JSON.stringify({
-          "username": username,
-          "datetime": currentDateTime,
-          "data": {
-            "nodeWorks" : {
-              "state": jsonTrans.state,
-              "protocolVersion": jsonTrans.protocolVersion,
-              "latestBlockTime": convertTimestampToDateTime(jsonTrans.latestBlockTime),
-              "latestTimeDiff" : calculateTimeDifferenceInSeconds(jsonTrans.latestBlockTime),
-              "maxDelay" : maximumRef.current,
-              "ledgerNumber": jsonTrans.ledgerNumber,
-              "incomingNodes": jsonTrans.incomingNodes,
-              "outgoingNodes": jsonTrans.outgoingNodes,
-              "latestProtocolVersion": jsonTrans.latestProtocolVersion
-            }, 
-            "hardware" : {
-              "state": jsonTrans.state,
-            }
+    let data = JSON.stringify({
+      "username": name,
+      "datetime": currentDateTime,
+      "data": {
+        "nodeWorks" : {
+          "state": screen.state,
+          "protocolVersion": screen.protocolVersion,
+          "latestBlockTime": convertTimestampToDateTime(screen.latestBlockTime),
+          "latestTimeDiff" : calculateTimeDifferenceInSeconds(screen.latestBlockTime),
+          "maxDelay" : maximumRef.current,
+          "ledgerNumber": screen.ledgerNumber,
+          "incomingNodes": screen.incomingNodes,
+          "outgoingNodes": screen.outgoingNodes,
+          "latestProtocolVersion": screen.latestProtocolVersion
+        }, 
+        "hardware" : {
+          "state": screen.state,
+          "cpu": cpuUsage,
+          "memory": memoryUsage,
+          "storage": storageUsage
         }
-        });
-   
+    }
+    });
+
          
           let config = {
             method: 'post',
@@ -217,7 +243,7 @@ function App() {
             console.log(error);
           });
 
-
+    // node, session 정보 업데이트 
           const piData = await getPiData()
           const nodeSession = await getNodeSessionData()
           const dataPi = {
@@ -248,6 +274,8 @@ function App() {
     
   }
 
+  
+
   async function sendToServer (){
 
     counterRef.current += 1;
@@ -258,7 +286,6 @@ function App() {
 
       const currentDateTime = getCurrentDateTime();
       setLastServerUpdatetime(currentDateTime)
-
 
       let data = JSON.stringify({
           "username": name,
@@ -277,6 +304,9 @@ function App() {
             }, 
             "hardware" : {
               "state": screen.state,
+              "cpu": cpuUsage,
+              "memory": memoryUsage,
+              "storage": storageUsage
             }
         }
         });
@@ -344,79 +374,228 @@ function App() {
   }
 
   useEffect(() => {
+
     let id = setInterval(() => {
-      greet()
+      // greet()
       if(confirmed){
         sendToServer()
-        getSystemInfo()
-  
+        getDynamicInfo()
       }
     }, 5000);
     return () => clearInterval(id);
   });
 
-  function submitHandler (e) {
-      e.preventDefault();
+  async function emailCheck() {
+
+    setIsLoading(true)
+    const emailExist = await checkUser()
+    
+    if(emailExist == "noEmail"){
+      setNoEmail(true)
+      setIsLoading(false)
+    } else {
+      setOnboardCounter(3) // modal close
       setConfirmed(true)
-      greet();
+      await accountUpdate()
+      await getStaticInfos() // upload inital user info
+      setIsLoading(false)
+    }
+
   }
 
+  
+    const checkUser = async () => {
+
+      const info = await axios.post(`https://sdbwx50noj.execute-api.ap-northeast-2.amazonaws.com/production/myNodeList`,
+      {
+        "userEmail": email
+      })
+
+      if (info === null || (info.data && info.data.body === "no") || email === "") {
+        return "noEmail"
+    } else {
+      return ""
+    }
+   }
+
+   const accountUpdate = async () => {
+
+    const info = await axios.post(`https://sdbwx50noj.execute-api.ap-northeast-2.amazonaws.com/production/addNode`,
+    {
+        userEmail : email,
+        nodeName : name
+    })
+  
+  }
+
+  async function pinodeCheck() {
+
+    try {
+      const res = await invoke("get_session");
+
+      if(res === null){
+        setNoNode(false)
+      } else {
+        setName(JSON.parse(res).profile.username)
+        setNoNode(true)
+        setOnboardCounter(2)     
+      }
+
+    } catch{
+      setNoNode(false)
+    }
+
+  }
+
+    // Event handler for input changes
+    const handleEmailChange = (event) => {
+      // Update the email state with the current input value
+      setEmail(event.target.value);
+    };
+
   return (
-    <div className="">
+    <div>
 
         <WelcomeBanner />
 
-        {/* <div className="bt-5">
-           <div className="text-center pt-3 pb-3 btn w-full bg-red-500 text-white">모니터링 서버연동 상태 : 미 연동</div>
-        </div> */}
-
         <ServerStatus coreNumber={coreNumber} cpuModel={cpuModel} cpuFreq={cpuFreq} memstat={memoryUsage} storagestat={storageUsage} cpustat={cpuUsage} winVersion={winVersion}/>
 
-        <NodeStatus />
+        <NodeStatus name={name} confirmed={confirmed} dockerInf={dockerInfo} screenInfo={screen} syncdiff={syncdiff}/>
 
-        <header className="px-5 py-4 border-b border-slate-600 dark:border-slate-700 flex items-center">
-          <button className="pt-3 pb-3 btn w-full bg-blue-800 hover:bg-blue-600 text-white">모니터링 시작하기</button>
+        <header className="border-b border-slate-600 dark:border-slate-700 flex items-center">
+
+          <button
+            onClick={getStaticInfos}
+            className={`m-3 p-3 btn w-full ${confirmed ? 'bg-gray-400 cursor-not-allowed' : 'bg-blue-800 hover:bg-blue-600'} text-white`}
+            disabled={confirmed}
+          >
+            {isLoading ? 
+              <>데이터 불러오는 중...</>
+              :
+              onboardCounter === 3 ?              
+              <> - 원격진단 중 (주기 5분) -</>
+              : 
+              <>-</>
+              }
+          </button>        
         </header>
-        
-      {/* {name==="" ?     
-      <>
-        <p>아래 버튼을 누르고 연동을 시작하세요.</p>
-        <button style={{width:"200px", margin:"0px auto"}} onClick={getSession}>
-          연동시작하기
-        </button>
-      </>
-      :
-      <>
-        <div></div>
-        <p>UserName : {name}</p>
-        <div style={{color:"blue"}}>연동이 시작되었습니다! </div>
-        <br />
-        <br />
-        <div style={{color:"green"}}>노드상태</div>
-        <div style={{fontSize:"12px"}}>마지막 싱크 이후 : {syncdiff} 초</div>
-        <br />
-        싱크상태 : {screen.state === "Synced!" ? <>정상싱크</>:<>싱크 맞추는 중</>} <br/>
-        outgoing nodes : {screen.outgoingNodes}<br/>
-        incomming nodes : {screen.incomingNodes}<br/>
-        <div style={{fontSize:"12px"}}>마지막 싱크 이후 : {synctime} 초</div>
-        
-        <br />
-        <br />
 
-        <p style={{color:"green"}}> 파이킹 서버 연동 상태 </p>
-          파이킹 - 노드캐어 상태전송주기 (5분) <br/>
-        ( {5*counterRef.current} /300 초)<br/>
-        {lastServerUpdatetime}
-      </>
-      }
+        {onboardCounter == 0 ? (
+            <>
+            <div className="justify-center items-center flex overflow-x-hidden overflow-y-auto fixed inset-0 z-50 outline-none focus:outline-none">
+                <div className="relative w-full max-w-md max-h-full">
+                <div className="border-0 rounded-lg shadow-lg relative flex flex-col w-full bg-white outline-none focus:outline-none">
+                    
+                    <div className="flex items-start justify-between p-5 border-b border-solid border-slate-200 rounded-t text-xl">
+                      1. pi node 정보연결 시작하기
+                    </div>
+                    
+                    <div class="p-6">
+                        <div>
+                            노드의 운영현황을 NodeCare.io 를 통해서
+                        </div>
+                        <div>
+                            언제 어디서든 확인해 보세요!
+                        </div>
 
-      {noNode ?
-        <>노드설치확인이 되지 않습니다.</>
-        :
-        <></>
-      }       */}
+                        <div className="pt-5 pb-2">
+                         아래 버튼을 눌러서 노드정보연동을 시작합니다.
+                        </div>
+                           {noNode ? 
+                          <></>
+                          :
+                          <div class="p-4 mb-4 text-sm text-red-800 rounded-lg bg-red-50 dark:bg-gray-800 dark:text-red-400" role="alert">
 
-      
+                          <span class="font-medium">
+                            * 파이노드 설치가 확인되지 않습니다.
+                          </span> 
+                          </div>
+                          }
+                        <div class="mt-3"></div>
+                            {noNode ?
+                              <button onClick={pinodeCheck} className="btn w-full round-full pt-2 pb-2 bg-blue-800 hover:bg-blue-600 text-white">
+                                시작하기
+                             </button> :
+                              <button
+                              className={"btn w-full round-full pt-2 pb-2 bg-gray-400 text-white"}
+                              disabled={true}
+                            >
+                              설치되어 있지만 인식이 안된다면, <br />
+                              네이버 카페 문의 바랍니다.
+                            </button>
+                            }
+                        </div>
+                </div>
+                </div>
+            </div>
+            <div className="opacity-25 fixed inset-0 z-40 bg-black"></div>
+
+            </>
+        ) : null}
+
+        {onboardCounter == 2 ? (
+            <>
+            <div className="justify-center items-center flex overflow-x-hidden overflow-y-auto fixed inset-0 z-50 outline-none focus:outline-none">
+                <div className="relative w-full max-w-md max-h-full">
+                <div className="border-0 rounded-lg shadow-lg relative flex flex-col w-full bg-white outline-none focus:outline-none">
+                 
+                    <div className="flex items-start justify-between p-5 border-b border-solid border-slate-200 rounded-t text-xl">
+                      2. NodeCare 계정연결하기
+                    </div>
+                    
+                    <div class="p-6">
+                        <div>
+                            {name} 님 !<br />
+                            NodeCare 에 가입된 이메일주소를 입력해주세요.
+                        </div>                   
+
+                        <div>
+                          
+                        <label for="email" class="pt-5 block mb-2 text-sm font-medium text-gray-900 dark:text-white">Your NodeCare Account (email)</label>
+                        <input
+                          type="email"
+                          name="email"
+                          id="email"
+                          className="mb-5 bg-gray-50 border border-gray-300 text-gray-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block w-full p-2.5 dark:bg-gray-600 dark:border-gray-500 dark:placeholder-gray-400 dark:text-white"
+                          placeholder="name@company.com"
+                          value={email}
+                          onChange={handleEmailChange}
+                          required
+                        />
+                        </div>
+                           {!noEmail ? 
+                          <></>
+                          :
+                          <div class="p-4 mb-4 text-sm text-red-800 rounded-lg bg-red-50 dark:bg-gray-800 dark:text-red-400" role="alert">
+
+                          <span class="font-medium">
+                            해당 이메일은 존재하지 않습니다. <br />
+                            확인 후 재기입하시거나, 가입을 안하셧다면 <br />
+                            NodeCare.io 가입 후 연결하시기 바랍니다.
+                          </span> 
+                          </div>
+                          }
+                        <div class="mt-3"></div>
+                        {isLoading?
+                        <button disabled className="btn w-full round-full pt-2 pb-2 bg-gray-800 hover:bg-blue-600 text-white">
+                          로딩중
+                        </button> 
+                        :
+                        <button onClick={emailCheck} className="btn w-full round-full pt-2 pb-2 bg-blue-800 hover:bg-blue-600 text-white">
+                            시작하기
+                        </button> 
+                        }
+                          
+                        </div>
+                </div>
+                </div>
+            </div>
+            <div className="opacity-25 fixed inset-0 z-40 bg-black"></div>
+
+            </>
+        ) : null}    
+
+
     </div>
   );
 }
@@ -468,18 +647,18 @@ function WelcomeBanner() {
       </div>
 
       <div className="relative">
-        <h1 className="text-2xl md:text-3xl text-white dark:text-slate-100 font-bold mb-1">Welcome to NodeCare ! 👋</h1>
-        {/* <p className="dark:text-indigo-200">연동하기를 누르고, 손쉬운 노드관리를 시작하세요!</p> */}
-        <p className="text-white">Version : 0.9</p>
+        <div className="flex flex-row">
+          <h1 className="text-2xl md:text-3xl text-white dark:text-slate-100 font-bold mb-1">NodeCare.io for </h1>
+          <img className="h-8 w-8 ml-3" src={reactLogo} alt="abc svg" />
+        </div>
+        
+        <p className="text-white">v 0.9</p>
       </div>
     </div>
   );
 }
 
 function ServerStatus({coreNumber, cpuModel, cpuFreq, memstat, storagestat,cpustat, winVersion}) {
-
-  // console.log("memory Usage Inner",memstat)
-  // console.log("storagestat",storagestat)
 
   return (
     <div className="flex flex-col col-span-full xl:col-span-4 bg-gradient-to-b from-slate-700  to-slate-800 dark:bg-none dark:bg-slate-800 shadow-lg rounded-sm border border-slate-700">
@@ -556,7 +735,6 @@ function ServerStatus({coreNumber, cpuModel, cpuFreq, memstat, storagestat,cpust
               <div className="flex justify-between text-sm mb-2">
                 <div className="text-slate-300">RAM</div>
                 <div className="text-slate-400 italic">
-                {/* {(bytesToGigabytes(memstat.total))} */}
                   {(bytesToGigabytes(memstat.use)).toFixed(2)} <span className="text-slate-500 dark:text-slate-400">/</span> {bytesToGigabytes(memstat.total).toFixed(2)} GB
                   ({memstat.percent.toFixed(2)} %)
                 </div>
@@ -587,12 +765,15 @@ function ServerStatus({coreNumber, cpuModel, cpuFreq, memstat, storagestat,cpust
   );
 
   function bytesToGigabytes(bytes) {
-    return bytes / (1024 ** 3); // 1024의 3승으로 나눠서 기가바이트로 변환
+    return bytes / (1024 ** 3); 
   }
   
 }
 
-function NodeStatus() {
+function NodeStatus({name, confirmed, screenInfo, syncdiff, dockerInf}) {
+
+  const [hideName, setHideName] = useState(false)
+
   return (
     <div className="flex flex-col col-span-full xl:col-span-4 bg-gradient-to-b from-slate-800  to-slate-900 dark:bg-none dark:bg-slate-800 shadow-lg rounded-sm border border-slate-700">
       <header className="px-5 py-4 border-b border-slate-600 dark:border-slate-700 flex items-center">
@@ -604,21 +785,19 @@ function NodeStatus() {
       <div className="flex-1 h-full flex flex-col px-5 py-6">
         <div className="grow flex flex-col justify-center mt-0">
 
-          <div className="text-xs text-slate-500 font-semibold uppercase mb-3">소프트웨어</div>
+          <div className="text-xs text-slate-500 font-semibold uppercase mb-3">docker</div>
           <div className="space-y-2">
             <div>
               <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">도커 버전</div>
+                <div className="text-slate-300">docker version</div>
                 <div className="text-slate-400 italic">
-                  {/* {cpuModel} */}
-                  4.2.3
+                  {dockerInf.version ? dockerInf.version.split("DockerDesktop")[1] : "-"}
                 </div>
               </div>
               <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">도커 CPUS</div>
+                <div className="text-slate-300">CPUs (docker info)</div>
                 <div className="text-slate-400 italic">
-                  32
-                  {/* {cpuFreq/1000} Ghz */}
+                  {dockerInf.cpus ? dockerInf.cpus : "-"}
                 </div>
               </div>
             </div>
@@ -630,15 +809,26 @@ function NodeStatus() {
               <div className="flex justify-between text-sm mb-2">
                 <div className="text-slate-300">연동상태</div>
                 <div className="text-slate-400 italic">
-                  연결됨
-                  {/* {cpuModel} */}
+                  {confirmed ? "연동됨" : "-"}
                 </div>
               </div>
               <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">유저네임</div>
+                <div className="text-slate-300">유저네임
+                  <button onClick={()=>setHideName(!hideName)} className="border border-white ml-2 text-sm pl-2 pr-2">
+                    {hideName ? 
+                    <>보이기</>
+                    :
+                    <>감추기</>
+                    }
+                  </button>
+
+                </div>
                 <div className="text-slate-400 italic">
-                  pirick2053
-                  {/* {cpuFreq/1000} Ghz */}
+                  {hideName ? 
+                  <>-</>
+                  :
+                  name
+                  }
                 </div>
               </div>
             </div>
@@ -654,38 +844,57 @@ function NodeStatus() {
               <div className="flex justify-between text-sm mb-2">
                 <div className="text-slate-300">Sync State</div>
                 <div className="text-slate-400 italic">
-                    Synced!
+                    {screenInfo.state}
                 </div>
               </div>
             </div>
             <div>
               <div className="flex justify-between text-sm mb-4">
-                <div className="text-slate-300">Latest Block 싱크 이후 시간</div>
+                <div className="text-slate-300">Blockchain Sync Delay (Sec)                
+                  {syncdiff > 0 && syncdiff < 60 ?     
+                  <span class="ml-5 bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.0 rounded dark:bg-blue-900 dark:text-blue-300">Good !</span>
+                  :
+                  <></>
+                  }
+                </div>
                 <div className="text-slate-400 italic">
-                    Synced!
+                    {syncdiff}  
                 </div>
               </div>
             </div>
             <div>
               <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">Outgoing Connections</div>
+                <div className="text-slate-300">Outgoing Connections
+                {screenInfo.outgoingNodes == 8 ?     
+                  <span class="ml-5 bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.0 rounded dark:bg-blue-900 dark:text-blue-300">Good !</span>
+                  :
+                  <></>
+                  }
+                </div>
                 <div className="text-slate-400 italic">
-                  1 <span className="text-slate-500 dark:text-slate-400">/</span> 8
+                  {screenInfo.outgoingNodes} <span className="text-slate-500 dark:text-slate-400">/</span> 8
                 </div>
               </div>
               <div className="relative w-full h-2 bg-slate-600">
-                <div className="absolute inset-0 bg-emerald-500" aria-hidden="true" style={{ width: `${20}%` }} />
+                <div className="absolute inset-0 bg-emerald-500" aria-hidden="true" style={{ width: `${screenInfo.outgoingNodes/8*100}%` }} />
               </div>
             </div>
             <div>
-              <div className="flex justify-between text-sm mb-2">
-                <div className="text-slate-300">Incoming Connections</div>
+              <div className="flex justify-between text-sm mb-2 pt-1">
+                <div className="text-slate-300">Incoming Connections
+                {screenInfo.incomingNodes > 0 ?     
+                  <span class="ml-5 bg-blue-100 text-blue-800 text-xs font-medium me-2 px-2.5 py-0.0 rounded dark:bg-blue-900 dark:text-blue-300">Good !</span>
+                  :
+                  <></>
+                  }
+                </div>
+                
                 <div className="text-slate-400 italic">
-                  1 <span className="text-slate-500 dark:text-slate-400">/</span> 64
+                  {screenInfo.incomingNodes} <span className="text-slate-500 dark:text-slate-400">/</span> 64
                 </div>
               </div>
               <div className="relative w-full h-2 bg-slate-600">
-                <div className="absolute inset-0 bg-emerald-500" aria-hidden="true" style={{ width: `${20}%` }} />
+                <div className="absolute inset-0 bg-emerald-500" aria-hidden="true" style={{ width: `${screenInfo.incomingNodes/64*100}%` }} />
               </div>
             </div>
           </div>
